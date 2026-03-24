@@ -167,6 +167,12 @@ Project view: one card per image key; `runs` has one entry per project run, with
 ### Metric keys with `/` are grouped into a `MetricGroup` container at render time
 `compute_units(card_order)` partitions flat keys by first path segment. `card_order` stays flat — groups are derived, never stored. Group size: `card_sizes['group::prefix'] = {w, h, collapsed?}`. Each child has its own `card_sizes[key]`. Two independent drag systems: `dragging_key`/`drag_over_key` for top-level unit reorder; `dragging_child_key`/`drag_over_child_key` for within-group reorder. Collapsed children are sorted to the end of the group's key list at render time so they appear at the bottom as compact strips.
 
+### Group sizes must be explicitly restored from `saved.sizes` — they are not in `card_order`
+`load_layout` rebuilds `card_sizes` by iterating `saved.order` (flat keys only). `group::prefix` entries in `saved.sizes` are skipped unless you add a second pass: `for (const [k,v] of Object.entries(saved.sizes)) { if (k.startsWith('group::')) merged[k] = v; }`.
+
+### Group children should use `flex: 0 1 auto` so they shrink when the group is narrower
+`flex: 0 0 auto` (no shrink) causes children to overflow the group. With `flex: 0 1 auto`, the inline `width` property acts as the flex-basis and children shrink proportionally when the group width forces it, stopping at `min-width: 200px`.
+
 ---
 
 ## SDK

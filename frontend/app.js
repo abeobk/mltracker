@@ -596,6 +596,10 @@ const MainPanel = defineComponent({
             for (const key of saved.order) {
               merged[key] = saved.sizes[key] || default_size(key);
             }
+            // Restore group sizes (group:: keys are not in order but must be preserved)
+            for (const [k, v] of Object.entries(saved.sizes)) {
+              if (k.startsWith('group::')) merged[k] = v;
+            }
             card_sizes.value = merged;
             return;
           }
