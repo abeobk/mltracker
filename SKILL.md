@@ -164,6 +164,17 @@ Prompt saves to `~/.mltracker` (chmod 600). Env vars: `MLTRACKER_API_KEY`, `MLTR
 
 ---
 
+## Nginx
+
+### Nginx location regex must use `(/|$)` — not a bare trailing slash
+`location ~ ^/(api|auth|files|health)/` only matches paths that have a slash after the prefix. `/health` (no trailing slash) falls through to `try_files` and returns the SPA HTML instead of JSON. Always write `(/|$)`:
+```nginx
+location ~ ^/(api|auth|files|health)(/|$) {
+```
+This applies to the generated config in `bootstrap.sh` and the reference `nginx.conf`.
+
+---
+
 ## Workflow
 
 ### Before every commit: update `CLAUDE.md` and `SKILL.md`, write a detailed commit message
