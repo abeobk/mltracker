@@ -1,5 +1,5 @@
 # ── Test scripts (may contain hardcoded API keys) ────────────────────────────
-test/
+test/__pycache__/
 
 # ── SDK saved credentials ────────────────────────────────────────────────────
 .mltracker
