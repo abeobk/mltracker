@@ -429,6 +429,18 @@ def _make_session(api_key: str) -> requests.Session:
     return s
 
 
+def _check_server(host: str) -> None:
+    """Verify the server is reachable before starting a run."""
+    try:
+        r = requests.get(f"{host}/health", timeout=10)
+        if not r.ok or r.json().get('status') != 'ok':
+            raise WandBError(f"Server health check failed ({r.status_code}). Is MLTracker running at {host}?")
+    except requests.exceptions.ConnectionError:
+        raise WandBError(f"Cannot reach MLTracker server at {host}. Check the host and make sure the server is running.")
+    except requests.exceptions.Timeout:
+        raise WandBError(f"Server at {host} timed out. Check your network or server status.")
+
+
 def _create_or_get_run(session: requests.Session, host: str, api_key: str,
                        project: str, full_name: str,
                        config: Optional[Dict]) -> Run:
@@ -468,10 +480,15 @@ def init(
         MLTRACKER_HOST    — optional, defaults to http://localhost:5000
     """
     api_key, host = _resolve_credentials(api_key, host)
+    _check_server(host)
     suffix        = secrets.token_hex(3)          # 6-char hex, e.g. "a3f2b1"
     full_name     = f"{name}_{suffix}"
     session       = _make_session(api_key)
-    return _create_or_get_run(session, host, api_key, project, full_name, config)
+    run           = _create_or_get_run(session, host, api_key, project, full_name, config)
+    print(f"mltracker: project  {project}")
+    print(f"mltracker: run      {run.name}")
+    print(f"mltracker: view     {host}")
+    return run
 
 
 def resume(
