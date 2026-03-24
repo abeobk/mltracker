@@ -1037,3 +1037,30 @@ REPO_USER="$(stat -c '%U' "$REPO_DIR")"
 
 All `sudo -u`, `chown`, and path references then use `$REPO_USER` and `$REPO_DIR`.
 The systemd service file is patched at install time with the real path via `sed`.
+
+### S-62 · EC2 deployment gotchas (verified on Amazon Linux 2023)
+
+**Nginx can't read files in home directory:**
+Home dirs are `chmod 700` — Nginx (running as `nginx` user) gets EACCES on `stat()`.
+Fix: `chmod o+x /home/$REPO_USER` — adds traverse permission without exposing file contents.
+
+**curl conflicts with curl-minimal on AL2023:**
+AL2023 ships `curl-minimal` pre-installed. Installing `curl` (full) conflicts and aborts the entire `dnf` transaction. Remove `curl` from the AL2023 package list — `curl-minimal` is sufficient.
+
+**Redis service name differs by distro:**
+- Ubuntu: `redis-server`
+- AL2023: `redis6`
+- AL2: `redis`
+Hardcoding `redis.service` in the systemd unit causes `Unit redis.service not found` on AL2023. Use a placeholder and substitute via `sed` at install time.
+
+**gunicorn.conf.py must use absolute path:**
+`WorkingDirectory` is set to `backend/` but `gunicorn.conf.py` lives in the repo root. Using `-c gunicorn.conf.py` (relative) fails. Use `-c __REPO_DIR__/gunicorn.conf.py` (absolute).
+
+**EBS volume owned by root after mkfs+mount:**
+A freshly formatted EBS volume is always owned by root regardless of prior `chown` on the mount point. Always `chown` after mounting, not before.
+
+**Google OAuth redirect URI must exactly match:**
+Add `http://<ip>/auth/callback` (or `https://<domain>/auth/callback`) to Authorised redirect URIs in Google Cloud Console. Any mismatch causes `redirect_uri_mismatch` error.
+
+**Test scripts with API keys — keep out of git:**
+Put manual/integration test scripts in `test/` and add `test/` to `.gitignore`. Never commit hardcoded API keys.

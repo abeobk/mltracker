@@ -398,10 +398,10 @@ run = wandb.resume(project="mnist", name="exp_a3f2b1")
 **Inbound:** ports 22 (your IP), 80, 443.
 
 **Setup scripts** (in `setup/`):
-- `bootstrap.sh` — one-time setup; auto-detects distro (Ubuntu / AL2023 / AL2), derives repo path and owner from script location — no hardcoded paths
+- `bootstrap.sh` — one-time setup; prompts for data storage location (repo `data/`, EBS volume, or custom); auto-detects distro (Ubuntu / AL2023 / AL2); derives repo path and owner from script location — no hardcoded paths; fixes Nginx home dir permissions (`chmod o+x`)
 - `certbot.sh` — run after DNS is live; installs TLS cert, flips `SESSION_COOKIE_SECURE=true`
 - `update.sh` — `git pull` + pip sync + service restart
-- `env.template` — copy to `/etc/mltracker.env` and fill in secrets
+- `env.template` — copied to `/etc/mltracker.env` with `__REPO_DIR__` substituted at install time
 
 **Key config:**
 - Gunicorn: `bind=127.0.0.1:8000`, `workers=4`, `worker_class=sync`, `timeout=120`
@@ -437,7 +437,7 @@ SESSION_COOKIE_SECURE=true
 [x] Phase 3: storage.py + all API routes          → full log/query/delete cycle works
 [x] Phase 4: frontend (index.html, style.css, app.js) → dashboard shows charts + images
 [x] Phase 5: mltracker.py SDK                   → end-to-end script → dashboard shows data
-[x] Deployment: EC2 setup scripts (bootstrap, certbot, update)
+[x] Deployment: EC2 setup scripts (bootstrap, certbot, update) — verified working on AL2023
 ```
 
 **Deployment verification:**
