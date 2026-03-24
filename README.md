@@ -90,9 +90,9 @@ python sinewave_test.py             # demo script included in the repo
 ## Python SDK
 
 ```python
-import mltracker as wandb
+import mltracker as tracker
 
-run = wandb.init(project="mnist", name="exp1", config={"lr": 0.001, "epochs": 10})
+run = tracker.init(project="mnist", name="exp1", config={"lr": 0.001, "epochs": 10})
 
 for step in range(100):
     run.log({"loss": 0.5 / (step + 1), "acc": 1 - 0.4 / (step + 1)}, step=step)
@@ -100,14 +100,14 @@ for step in range(100):
     if step % 10 == 0:
         import numpy as np
         img = np.random.randint(0, 255, (64, 64, 3), dtype=np.uint8)
-        run.log({"pred": wandb.Image(img)}, step=step)
+        run.log({"pred": tracker.Image(img)}, step=step)
 
 run.finish()
 ```
 
 **Resuming a run:**
 ```python
-run = wandb.resume(project="mnist", name="exp1_a3f2b1")
+run = tracker.resume(project="mnist", name="exp1_a3f2b1")
 run.log({"loss": 0.01}, step=100)
 run.finish()
 ```
