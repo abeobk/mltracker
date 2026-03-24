@@ -1159,7 +1159,13 @@ const App = defineComponent({
     window.addEventListener('resize', on_resize);
     onUnmounted(() => window.removeEventListener('resize', on_resize));
 
-    function toggle_theme() { document.body.classList.toggle('light'); }
+    function toggle_theme() {
+      const is_light = document.body.classList.toggle('light');
+      localStorage.setItem('theme', is_light ? 'light' : 'dark');
+    }
+
+    // Apply saved theme before first render
+    if (localStorage.getItem('theme') === 'light') document.body.classList.add('light');
 
     function start_panel_resize(e) {
       const start_x = e.clientX;
