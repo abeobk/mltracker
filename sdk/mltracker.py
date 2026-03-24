@@ -433,8 +433,13 @@ def _check_server(host: str) -> None:
     """Verify the server is reachable before starting a run."""
     try:
         r = requests.get(f"{host}/health", timeout=10)
-        if not r.ok or r.json().get('status') != 'ok':
+        if not r.ok:
             raise WandBError(f"Server health check failed ({r.status_code}). Is MLTracker running at {host}?")
+        try:
+            if r.json().get('status') != 'ok':
+                raise WandBError(f"Server at {host} reported unhealthy status.")
+        except ValueError:
+            raise WandBError(f"Server at {host} returned a non-JSON health response. Is this an MLTracker server?")
     except requests.exceptions.ConnectionError:
         raise WandBError(f"Cannot reach MLTracker server at {host}. Check the host and make sure the server is running.")
     except requests.exceptions.Timeout:
