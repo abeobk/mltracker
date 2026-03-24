@@ -165,7 +165,7 @@ Project view: one card per image key; `runs` has one entry per project run, with
 ### localStorage keys: `wandb_layout_run_<id>`, `wandb_layout_proj_<id>`, `wandb_last_sel`
 
 ### Metric keys with `/` are grouped into a `MetricGroup` container at render time
-`compute_units(card_order)` partitions flat keys by first path segment: `train/loss` and `train/acc` become a group with `unit_key = 'group::train'`. `card_order` stays flat — groups are derived, never stored. Group size is `card_sizes['group::train'] = {w, h}` where `h` is a uniform child card height (all children share it). Child cards receive `width: null` (flex fills evenly) and `height: group_sizes.h`. Group resize handle is `se-resize` (both axes) — x changes `w`, y changes `h` which propagates to all children. Drag operates on unit keys — `start_drag` moves all flat keys of the unit.
+`compute_units(card_order)` partitions flat keys by first path segment. `card_order` stays flat — groups are derived, never stored. Group size: `card_sizes['group::prefix'] = {w, h, collapsed?}`. Each child has its own `card_sizes[key]`. Two independent drag systems: `dragging_key`/`drag_over_key` for top-level unit reorder; `dragging_child_key`/`drag_over_child_key` for within-group reorder. Collapsed children are sorted to the end of the group's key list at render time so they appear at the bottom as compact strips.
 
 ---
 

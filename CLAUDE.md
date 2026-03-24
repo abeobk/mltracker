@@ -284,7 +284,7 @@ App
 - Layout saved to `localStorage` as `{order, sizes}` under key `wandb_layout_run_<id>` or `wandb_layout_proj_<id>`
 - Restored on first data arrival for a selection
 
-**Path grouping:** metric/image keys containing `/` are grouped at render time by `compute_units(card_order)`. Keys sharing a prefix (e.g. `train/loss`, `train/acc`) render inside a `MetricGroup` container. `card_order` stays flat — groups are derived, never stored. Group size stored as `card_sizes['group::prefix'] = {w, h}` where `h` is the uniform child card height. Child cards get `width: null` (flex fills them evenly, wrapping on overflow) and `height: group_sizes.h`. Group resize handle tracks both axes (se-resize) — width controls container width, height controls all child card heights uniformly. Drag reorders whole units — `start_drag` moves all flat keys of the unit together.
+**Path grouping:** metric/image keys containing `/` are grouped at render time by `compute_units(card_order)`. Keys sharing a prefix (e.g. `train/loss`, `train/acc`) render inside a `MetricGroup` container. `card_order` stays flat — groups are derived, never stored. Group size: `card_sizes['group::prefix'] = {w, h, collapsed?}`. Each child card has its own `card_sizes[key] = {w, h, collapsed?}`. Group resize handle (se-resize) sets group `{w, h}` but each child is independently resizable. Two drag systems: top-level (`dragging_key`) reorders units (whole groups or singles); within-group (`dragging_child_key`) reorders keys within the same group. Collapsed children sort to the bottom of a group (active first, collapsed last) and render as compact strips (`width: auto`, no body).
 
 > ⚠️ **Watcher must use string key, not array:**
 > ```js

@@ -387,9 +387,15 @@ button:hover { background: #2563eb !important; border-color: #2563eb !important;
 }
 
 .metric-group-body .dashboard-card {
-  flex: 1 1 200px;
+  flex: 0 0 auto; /* respect individual inline widths */
   min-width: 200px;
-  width: auto !important; /* override inline width — flex controls sizing */
+}
+
+/* Collapsed children: shrink to just their title bar width */
+.metric-group-body .dashboard-card.is-collapsed {
+  flex: 0 0 auto;
+  width: auto !important;
+  min-width: 160px;
 }
 
 /* Group resize handle: both axes (se-resize, same visual as card) */

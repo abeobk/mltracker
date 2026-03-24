@@ -424,6 +424,7 @@ const DashCard = defineComponent({
         'dashboard-card',
         props.is_dragging  ? 'is-dragging'  : '',
         props.is_drag_over && !props.is_dragging ? 'is-drag-over' : '',
+        props.collapsed ? 'is-collapsed' : '',
       ],
       style: props.width != null ? { width: props.width + 'px' } : {},
       onMouseenter: () => emit('drag-enter'),
@@ -529,8 +530,10 @@ const MainPanel = defineComponent({
   setup(props) {
     const card_order    = ref([]);
     const card_sizes    = ref({});
-    const dragging_key  = ref(null);
-    const drag_over_key = ref(null);
+    const dragging_key        = ref(null);
+    const drag_over_key       = ref(null);
+    const dragging_child_key  = ref(null);
+    const drag_over_child_key = ref(null);
 
     // ── Layout persistence ──────────────────────────────────────────
     function lstore_key() {
@@ -653,6 +656,33 @@ const MainPanel = defineComponent({
       if (dragging_key.value) drag_over_key.value = key;
     }
 
+    // ── Within-group drag-to-reorder ─────────────────────────────────
+    function start_child_drag(key) {
+      dragging_child_key.value = key;
+      document.body.style.userSelect = 'none';
+      const on_up = () => {
+        if (drag_over_child_key.value && drag_over_child_key.value !== dragging_child_key.value) {
+          const arr  = [...card_order.value];
+          const from = arr.indexOf(dragging_child_key.value);
+          const to   = arr.indexOf(drag_over_child_key.value);
+          if (from !== -1 && to !== -1) {
+            arr.splice(from, 1);
+            arr.splice(to, 0, dragging_child_key.value);
+            card_order.value = arr;
+          }
+        }
+        dragging_child_key.value  = null;
+        drag_over_child_key.value = null;
+        document.body.style.userSelect = '';
+        window.removeEventListener('mouseup', on_up);
+      };
+      window.addEventListener('mouseup', on_up);
+    }
+
+    function on_child_drag_enter(key) {
+      if (dragging_child_key.value) drag_over_child_key.value = key;
+    }
+
     function on_resize(key, dims) {
       card_sizes.value = { ...card_sizes.value, [key]: dims };
     }
@@ -747,15 +777,42 @@ const MainPanel = defineComponent({
         // Group
         const gk          = unit.unit_key;
         const group_sizes = card_sizes.value[gk] || default_size(gk);
-        const child_h     = group_sizes.h ?? DEFAULT_CHART_H;
-        const children    = unit.keys.map(key =>
-          render_card(key, { width: null, height: child_h, label_override: key.slice(unit.prefix.length + 1) })
-        );
+
+        // Collapsed children sink to the bottom; active ones stay on top
+        const sorted_keys = [
+          ...unit.keys.filter(k => !(card_sizes.value[k] || default_size(k)).collapsed),
+          ...unit.keys.filter(k =>  !!(card_sizes.value[k] || default_size(k)).collapsed),
+        ];
+
+        const children = sorted_keys.map(key => {
+          const csizes = card_sizes.value[key] || default_size(key);
+          const is_metric = key in (metrics || {});
+          return h(DashCard, {
+            key,
+            card_label:       key.slice(unit.prefix.length + 1),
+            is_metric,
+            is_dragging:      dragging_child_key.value  === key,
+            is_drag_over:     drag_over_child_key.value === key && dragging_child_key.value !== key,
+            width:            csizes.w,
+            height:           csizes.h,
+            collapsed:        !!csizes.collapsed,
+            downsampled:      is_metric && downsampled,
+            onDragStart:      () => start_child_drag(key),
+            onDragEnter:      () => on_child_drag_enter(key),
+            onResize:         dims => on_resize(key, { ...csizes, ...dims }),
+            onToggleCollapse: () => toggle_collapse(key),
+          }, {
+            default: () => is_metric
+              ? h(MetricChart, { metric_key: key, datasets: (metrics || {})[key] || [], is_live })
+              : h(ImageSlider, { img_key: key, runs: img_map[key]?.runs ?? [] }),
+          });
+        });
+
         return h(MetricGroup, {
           key:              gk,
           prefix:           unit.prefix,
           width:            group_sizes.w,
-          height:           child_h,
+          height:           group_sizes.h ?? DEFAULT_CHART_H,
           collapsed:        !!group_sizes.collapsed,
           is_dragging:      dragging_key.value  === gk,
           is_drag_over:     drag_over_key.value === gk,
