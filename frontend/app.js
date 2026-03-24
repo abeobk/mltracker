@@ -23,7 +23,7 @@ function run_color(idx) {
 // ---------------------------------------------------------------------------
 const TopBar = defineComponent({
   props: ['user', 'admin_active'],
-  emits: ['toggle-theme', 'logout', 'key-copied', 'toggle-admin'],
+  emits: ['toggle-theme', 'logout', 'key-copied', 'toggle-admin', 'toggle-panel'],
   setup(props, { emit }) {
     async function copy_key() {
       if (!props.user?.api_key) return;
@@ -31,6 +31,10 @@ const TopBar = defineComponent({
       emit('key-copied');
     }
     return () => h('div', { class: 'topbar' }, [
+      // Hamburger — only visible on mobile via CSS
+      h('button', { class: 'menu-btn', title: 'Toggle panel', onClick: () => emit('toggle-panel') }, [
+        h('i', { class: 'fa-solid fa-bars' }),
+      ]),
       h('a', { class: 'logo', href: '/' }, [
         h('i', { class: 'fa-solid fa-chart-line' }),
         'MLTracker',
@@ -894,6 +898,17 @@ const App = defineComponent({
       await load_projects();
     }
 
+    // ── Mobile panel state ───────────────────────────────────────────
+    const panel_open = ref(window.innerWidth > 768);
+    function is_mobile() { return window.innerWidth <= 768; }
+    function toggle_panel() { panel_open.value = !panel_open.value; }
+    function close_panel_on_mobile() { if (is_mobile()) panel_open.value = false; }
+
+    // Update panel_open default when window resizes (e.g. rotating device)
+    function on_resize() { if (!is_mobile()) panel_open.value = true; }
+    window.addEventListener('resize', on_resize);
+    onUnmounted(() => window.removeEventListener('resize', on_resize));
+
     function toggle_theme() { document.body.classList.toggle('light'); }
 
     function start_panel_resize(e) {
@@ -921,16 +936,23 @@ const App = defineComponent({
         onLogout:       () => { window.location = '/auth/logout'; },
         onKeyCopied:    () => {},
         onToggleAdmin:  () => { admin_view.value = !admin_view.value; },
+        onTogglePanel:  toggle_panel,
       }),
       admin_view.value
         ? [h(AdminPanel)]
         : [
+            // Backdrop — closes panel when tapping outside on mobile
+            h('div', {
+              class: `panel-backdrop${panel_open.value ? ' open' : ''}`,
+              onClick: toggle_panel,
+            }),
             h(LeftPanel, {
               projects: projects.value,
               sel_project_id: sel_project.value?.id ?? null,
               sel_run_id:     sel_run.value?.id ?? null,
-              onSelectProject: select_project,
-              onSelectRun:     select_run,
+              class: panel_open.value ? 'open' : '',
+              onSelectProject: id => { select_project(id); close_panel_on_mobile(); },
+              onSelectRun:     id => { select_run(id);     close_panel_on_mobile(); },
               onDeleteProject: delete_project,
               onDeleteRun:     delete_run,
             }),

@@ -573,3 +573,66 @@ button:hover { background: #2563eb !important; border-color: #2563eb !important;
    Misc
    =================================================================== */
 [title] { cursor: default; }
+
+/* ===================================================================
+   Mobile panel backdrop
+   =================================================================== */
+.panel-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 99;
+}
+
+/* Hamburger — hidden on desktop */
+.topbar .menu-btn { display: none; }
+
+/* ===================================================================
+   Mobile layout  (≤ 768px)
+   =================================================================== */
+@media (max-width: 768px) {
+  /* Single-column vertical layout — no left column or handle */
+  #app {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "topbar"
+      "main"
+      "status";
+  }
+
+  /* Left panel slides in as an overlay from the left */
+  .left-panel {
+    grid-area: unset;
+    position: fixed;
+    top: 48px;
+    left: 0;
+    bottom: 26px;
+    width: 280px;
+    z-index: 100;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.35);
+  }
+  .left-panel.open {
+    transform: translateX(0);
+  }
+
+  /* Show backdrop when panel is open */
+  .panel-backdrop.open { display: block; }
+
+  /* Hide desktop resize handle */
+  .resize-handle.lhandle { display: none; }
+
+  /* Show hamburger button */
+  .topbar .menu-btn { display: flex; }
+
+  /* Main panel fills full width */
+  .main-panel { grid-area: main; }
+
+  /* Slightly larger touch targets */
+  .tree-item { min-height: 38px; }
+
+  /* Cards full width on mobile */
+  .dashboard-card { min-width: unset; width: 100% !important; }
+}
