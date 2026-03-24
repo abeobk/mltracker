@@ -91,6 +91,7 @@ mltracker/
 
 ## Layout
 
+**Desktop (>768px):**
 ```
 ┌─────────────────────────────────────────────────┐  48px  TopBar
 ├──────────┬─┬───────────────────────────────────┤
@@ -99,8 +100,16 @@ mltracker/
 │  240px   │▌│                                    │
 ├──────────┴─┴───────────────────────────────────┤  26px  StatusBar
 ```
-
 CSS Grid: `grid-template-columns: var(--left-w) 5px 1fr`. Handle `.resize-handle.lhandle` updates `--left-w` live (min 160px, max 480px).
+
+**Mobile (≤768px):**
+```
+┌─────────────────────────────────────────────────┐  48px  TopBar (+ hamburger)
+├─────────────────────────────────────────────────┤
+│              Main Panel (full width)             │  1fr
+├─────────────────────────────────────────────────┤  26px  StatusBar
+```
+Single-column grid. Left panel is a fixed overlay (slides in from left, z-index 100). Collapsed by default. Hamburger button (`fa-bars`) in TopBar toggles it. Semi-transparent backdrop closes it on tap. Auto-closes after selecting a project or run. Cards stretch to full width.
 
 ---
 
@@ -237,7 +246,7 @@ All API routes under `/api/v1/`. Scripts use `Authorization: Bearer <api_key>`.
 
 ```
 App
-├── TopBar        (logo · user avatar · API key copy · admin toggle · theme toggle · logout)
+├── TopBar        (hamburger [mobile] · logo · user avatar · API key copy · admin toggle · theme toggle · logout)
 ├── AdminPanel    (admin only — user stats table; replaces left+main when active)
 ├── LeftPanel     (project/run collapsible tree with status dots + trash icons)
 ├── MainPanel     (card grid with persistent layout)

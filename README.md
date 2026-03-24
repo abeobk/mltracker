@@ -14,6 +14,7 @@ Think Weights & Biases, but running entirely on your own server with no external
 - **Image logging** — log numpy arrays or PIL images at any step; browse them with a step slider
 - **Google OAuth login** — browser sign-in via Google; scripts authenticate with a per-user API key
 - **Admin dashboard** — first registered user sees a user stats table (projects, runs, total tracking time)
+- **Mobile responsive** — vertical layout on phones; side panel collapses to a slide-in overlay toggled by a hamburger button
 - **Dark / light theme** — toggle in the top bar
 - **Simple Python SDK** — one file, one dependency (`requests`), async logging with automatic batching
 

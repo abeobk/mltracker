@@ -1064,3 +1064,42 @@ Add `http://<ip>/auth/callback` (or `https://<domain>/auth/callback`) to Authori
 
 **Test scripts with API keys — keep out of git:**
 Put manual/integration test scripts in `test/` and add `test/` to `.gitignore`. Never commit hardcoded API keys.
+
+---
+
+### S-63 · Mobile-responsive layout — overlay panel pattern
+
+**CSS approach:** media query at `max-width: 768px` switches to single-column grid and makes the left panel a fixed overlay:
+```css
+@media (max-width: 768px) {
+  #app {
+    grid-template-columns: 1fr;
+    grid-template-areas: "topbar" "main" "status";
+  }
+  .left-panel {
+    position: fixed;
+    top: 48px; left: 0; bottom: 26px;
+    width: 280px; z-index: 100;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+  }
+  .left-panel.open { transform: translateX(0); }
+}
+```
+
+**JS pattern:** `panel_open` ref defaults to `window.innerWidth > 768`. Add a resize listener to re-open on desktop:
+```js
+const panel_open = ref(window.innerWidth > 768);
+function on_resize() { if (window.innerWidth > 768) panel_open.value = true; }
+window.addEventListener('resize', on_resize);
+onUnmounted(() => window.removeEventListener('resize', on_resize));
+```
+
+**Auto-close on selection:** wrap select handlers to close panel on mobile:
+```js
+onSelectProject: id => { select_project(id); if (is_mobile()) panel_open.value = false; },
+```
+
+**Backdrop:** a `div.panel-backdrop` with `display:none` / `display:block` controlled by `.open` class; `onClick: toggle_panel`.
+
+**Cache busting:** bump `?v=N` on `<link href="style.css?v=N">` and `<script src="app.js?v=N">` whenever you need mobile browsers to drop their cached copy. Increment N on each change.
