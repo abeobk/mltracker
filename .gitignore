@@ -1,12 +1,17 @@
-# Secrets and environment
+# ── Secrets & environment ─────────────────────────────────────────────────────
 .env
 .env.*
-/etc/wandb_clone.env
+*.env
+/etc/mltracker.env
 
-# Database and user data
+# ── Database & user data ──────────────────────────────────────────────────────
 data/
 
-# Python
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Python ────────────────────────────────────────────────────────────────────
 backend/venv/
 __pycache__/
 *.pyc
@@ -16,13 +21,33 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
 
-# IDE
+# ── Node / frontend tooling (if added later) ─────────────────────────────────
+node_modules/
+dist/
+.npm/
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
+*.sublime-workspace
 
-# OS
+# ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
+.DS_Store?
 Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ── Temporary / misc ──────────────────────────────────────────────────────────
+*.tmp
+*.bak
+*.orig
