@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-# bootstrap.sh — One-time server setup for MLTracker on Ubuntu 22.04 EC2
+# bootstrap.sh — One-time server setup for MLTracker
+#                Supports: Ubuntu 20.04/22.04, Amazon Linux 2, Amazon Linux 2023
 #
 # Usage:
 #   1. SSH into your EC2 instance
@@ -8,6 +9,7 @@
 #   3. Run from any location:   sudo bash ~/mltracker/setup/bootstrap.sh
 #
 # What it does:
+#   - Detects the Linux distro and uses the correct package manager
 #   - Installs system packages (Python 3.11, Nginx, Redis, Certbot, Git)
 #   - Mounts the data EBS volume to /mnt/mltracker_data
 #   - Creates Python venv and installs pip dependencies
@@ -27,7 +29,6 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VENV_DIR="$REPO_DIR/backend/venv"
 DATA_MOUNT="/mnt/mltracker_data"
 SERVICE_NAME="mltracker"
-NGINX_SITE="/etc/nginx/sites-available/$SERVICE_NAME"
 LOG_DIR="/var/log/gunicorn"
 # Detect the user who owns the repo (works for ubuntu, ec2-user, or any other login)
 REPO_USER="$(stat -c '%U' "$REPO_DIR")"
@@ -39,18 +40,99 @@ warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
 [[ $EUID -ne 0 ]] && error "Run as root: sudo bash $0"
-info "Using repo at $REPO_DIR"
+info "Using repo at $REPO_DIR (owner: $REPO_USER)"
+
+# =============================================================================
+# 0. Distro detection
+# =============================================================================
+DISTRO_ID=""
+DISTRO_VERSION=""
+if [[ -f /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    source /etc/os-release
+    DISTRO_ID="${ID:-}"
+    DISTRO_VERSION="${VERSION_ID:-}"
+fi
+
+# Normalise Amazon Linux variant
+if [[ "$DISTRO_ID" == "amzn" && "$DISTRO_VERSION" == "2023" ]]; then
+    DISTRO="al2023"
+elif [[ "$DISTRO_ID" == "amzn" ]]; then
+    DISTRO="al2"
+elif [[ "$DISTRO_ID" == "ubuntu" || "$DISTRO_ID" == "debian" ]]; then
+    DISTRO="ubuntu"
+else
+    warn "Unrecognised distro '$DISTRO_ID' — assuming Ubuntu/Debian behaviour."
+    DISTRO="ubuntu"
+fi
+info "Detected distro: $DISTRO_ID $DISTRO_VERSION (profile: $DISTRO)"
+
+# Per-distro variables
+case "$DISTRO" in
+  ubuntu)
+    PYTHON_BIN="python3.11"
+    REDIS_SERVICE="redis-server"
+    # Ubuntu uses sites-available / sites-enabled pattern
+    NGINX_CONF_DIR="/etc/nginx/sites-available"
+    NGINX_ENABLED_DIR="/etc/nginx/sites-enabled"
+    NGINX_SITE="$NGINX_CONF_DIR/$SERVICE_NAME"
+    USE_SITES_ENABLED=true
+    ;;
+  al2023)
+    PYTHON_BIN="python3.11"
+    REDIS_SERVICE="redis6"
+    # Amazon Linux uses conf.d drop-in files
+    NGINX_CONF_DIR="/etc/nginx/conf.d"
+    NGINX_SITE="$NGINX_CONF_DIR/$SERVICE_NAME.conf"
+    USE_SITES_ENABLED=false
+    ;;
+  al2)
+    PYTHON_BIN="python3"   # AL2 ships Python 3.7; 3.11 installed below via extras
+    REDIS_SERVICE="redis"
+    NGINX_CONF_DIR="/etc/nginx/conf.d"
+    NGINX_SITE="$NGINX_CONF_DIR/$SERVICE_NAME.conf"
+    USE_SITES_ENABLED=false
+    ;;
+esac
 
 # =============================================================================
 # 1. System packages
 # =============================================================================
-info "Updating apt and installing packages..."
-apt-get update -qq
-apt-get install -y -qq \
-    python3.11 python3.11-venv python3-pip \
-    nginx redis-server \
-    certbot python3-certbot-nginx \
-    git curl jq logrotate
+info "Installing system packages..."
+
+case "$DISTRO" in
+  ubuntu)
+    apt-get update -qq
+    apt-get install -y -qq \
+        python3.11 python3.11-venv python3-pip \
+        nginx redis-server \
+        certbot python3-certbot-nginx \
+        git curl jq logrotate
+    ;;
+  al2023)
+    dnf update -q -y
+    dnf install -y -q \
+        python3.11 python3.11-pip \
+        nginx redis6 \
+        certbot python3-certbot-nginx \
+        git curl jq logrotate
+    # Make python3.11 available as the venv binary
+    alternatives --install /usr/bin/python3.11 python3.11 "$(command -v python3.11)" 10 || true
+    ;;
+  al2)
+    yum update -q -y
+    # Enable extras for Python 3.8 (closest available; 3.11 not in AL2 repos)
+    amazon-linux-extras install -y python3.8 nginx1 epel || true
+    yum install -y -q \
+        python38 python38-pip \
+        nginx redis \
+        certbot python3-certbot-nginx \
+        git curl jq logrotate
+    # Point python3.11 variable to available python3
+    PYTHON_BIN="python3.8"
+    warn "Amazon Linux 2 does not ship Python 3.11 — using Python 3.8. Consider upgrading to AL2023."
+    ;;
+esac
 
 # =============================================================================
 # 2. EBS data volume
@@ -69,7 +151,7 @@ done
 
 if [[ -z "$DEVICE" ]]; then
     warn "No secondary block device found. Using root volume for data (not recommended for production)."
-    DATA_MOUNT="/home/ubuntu/mltracker_data"
+    DATA_MOUNT="/home/$REPO_USER/mltracker_data"
     mkdir -p "$DATA_MOUNT"
 else
     # Format only if the device has no filesystem yet
@@ -98,7 +180,7 @@ info "Data volume ready at $DATA_MOUNT"
 # 3. Python venv + dependencies
 # =============================================================================
 info "Creating Python venv..."
-sudo -u "$REPO_USER" python3.11 -m venv "$VENV_DIR"
+sudo -u "$REPO_USER" "$PYTHON_BIN" -m venv "$VENV_DIR"
 sudo -u "$REPO_USER" "$VENV_DIR/bin/pip" install --quiet --upgrade pip
 sudo -u "$REPO_USER" "$VENV_DIR/bin/pip" install --quiet -r "$REPO_DIR/backend/requirements.txt"
 info "Python dependencies installed."
@@ -140,7 +222,9 @@ info "Logrotate configured for Gunicorn."
 # =============================================================================
 # 7. Systemd service
 # =============================================================================
-cp "$REPO_DIR/setup/mltracker.service" /etc/systemd/system/mltracker.service
+# Update service file with the detected python/venv path for this distro
+sed "s|/home/ubuntu/mltracker|$REPO_DIR|g" \
+    "$REPO_DIR/setup/mltracker.service" > /etc/systemd/system/mltracker.service
 systemctl daemon-reload
 systemctl enable mltracker
 info "Systemd service installed and enabled."
@@ -183,18 +267,20 @@ server {
 }
 EOF
 
-# Enable site
-ln -sf "$NGINX_SITE" /etc/nginx/sites-enabled/$SERVICE_NAME
-rm -f /etc/nginx/sites-enabled/default
+# Enable site (Ubuntu: symlink into sites-enabled; Amazon Linux: conf.d file is live directly)
+if [[ "$USE_SITES_ENABLED" == true ]]; then
+    ln -sf "$NGINX_SITE" "$NGINX_ENABLED_DIR/$SERVICE_NAME"
+    rm -f "$NGINX_ENABLED_DIR/default"
+fi
 
 nginx -t && info "Nginx config valid." || error "Nginx config has errors — check $NGINX_SITE"
 
 # =============================================================================
 # 9. Redis — start and enable
 # =============================================================================
-systemctl enable redis-server
-systemctl start redis-server
-info "Redis started."
+systemctl enable "$REDIS_SERVICE"
+systemctl start "$REDIS_SERVICE"
+info "Redis started ($REDIS_SERVICE)."
 
 # =============================================================================
 # 10. Start services
