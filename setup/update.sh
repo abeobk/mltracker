@@ -36,6 +36,23 @@ info "Updating Python dependencies..."
 sudo -u "$REPO_USER" "$VENV_DIR/bin/pip" install --quiet --upgrade pip
 sudo -u "$REPO_USER" "$VENV_DIR/bin/pip" install --quiet -r "$REPO_DIR/backend/requirements.txt"
 
+# ── Rebuild SDK wheel and publish to frontend/downloads/ ─────────────────────
+info "Building SDK wheel..."
+DOWNLOADS_DIR="$REPO_DIR/frontend/downloads"
+mkdir -p "$DOWNLOADS_DIR"
+# Build into a temp dir so partial builds don't overwrite a good wheel
+BUILD_TMP=$(mktemp -d)
+if sudo -u "$REPO_USER" "$VENV_DIR/bin/pip" wheel --quiet "$REPO_DIR/sdk" -w "$BUILD_TMP"; then
+    rm -f "$DOWNLOADS_DIR"/mltracker-*.whl
+    cp "$BUILD_TMP"/mltracker-*.whl "$DOWNLOADS_DIR/"
+    chown "$REPO_USER:$REPO_USER" "$DOWNLOADS_DIR"/mltracker-*.whl
+    WHL_NAME=$(ls "$DOWNLOADS_DIR"/mltracker-*.whl | xargs basename)
+    info "Wheel published: frontend/downloads/$WHL_NAME"
+else
+    warn "Wheel build failed — existing wheel (if any) unchanged."
+fi
+rm -rf "$BUILD_TMP"
+
 # ── Reload systemd in case the service file changed ──────────────────────────
 systemctl daemon-reload
 
@@ -67,4 +84,8 @@ journalctl -u mltracker -n 20 --no-pager
 echo ""
 echo -e "${GREEN}Update complete.${NC}"
 echo "  Health check: curl http://localhost:8000/health"
+if [[ -n "$(ls "$REPO_DIR/frontend/downloads"/mltracker-*.whl 2>/dev/null)" ]]; then
+    WHL=$(ls "$REPO_DIR/frontend/downloads"/mltracker-*.whl | xargs basename)
+    echo "  SDK download: /downloads/$WHL"
+fi
 echo ""

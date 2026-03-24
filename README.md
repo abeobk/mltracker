@@ -79,12 +79,10 @@ Open `http://localhost:5000` in your browser and sign in with Google.
 ### Log your first run
 
 ```bash
-# Install the SDK (build the wheel first, or pip install from the release asset)
-cd sdk && python -m build --wheel
-pip install dist/mltracker-0.1.0-py3-none-any.whl
+# Install the SDK directly from the server
+pip install https://mltracker.abeobk.com/downloads/mltracker-0.1.0-py3-none-any.whl
 
 export MLTRACKER_API_KEY=<your-api-key>  # copy from the top bar after login
-export MLTRACKER_HOST=http://localhost:5000
 
 python test/demo.py
 ```

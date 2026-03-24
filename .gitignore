@@ -22,6 +22,9 @@ sdk/dist/
 sdk/build/
 sdk/*.egg-info/
 
+# ── Wheel download directory (built on server, not committed) ─────────────────
+frontend/downloads/
+
 # ── Python ────────────────────────────────────────────────────────────────────
 backend/venv/
 __pycache__/
