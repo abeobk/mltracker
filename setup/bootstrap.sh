@@ -226,8 +226,10 @@ info "Logrotate configured for Gunicorn."
 # =============================================================================
 # 7. Systemd service
 # =============================================================================
-# Update service file with the detected python/venv path for this distro
-sed "s|/home/ubuntu/mltracker|$REPO_DIR|g" \
+# Install service file — substitute placeholders with detected values
+sed -e "s|__REPO_DIR__|$REPO_DIR|g" \
+    -e "s|__REPO_USER__|$REPO_USER|g" \
+    -e "s|__REDIS_SERVICE__|$REDIS_SERVICE|g" \
     "$REPO_DIR/setup/mltracker.service" > /etc/systemd/system/mltracker.service
 systemctl daemon-reload
 systemctl enable mltracker

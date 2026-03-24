@@ -1,14 +1,14 @@
 [Unit]
 Description=MLTracker — Gunicorn WSGI server
-After=network.target redis.service
-Requires=redis.service
+After=network.target __REDIS_SERVICE__
+Requires=__REDIS_SERVICE__
 
 [Service]
-User=ubuntu
-Group=ubuntu
-WorkingDirectory=/home/ubuntu/mltracker/backend
+User=__REPO_USER__
+Group=__REPO_USER__
+WorkingDirectory=__REPO_DIR__/backend
 EnvironmentFile=/etc/mltracker.env
-ExecStart=/home/ubuntu/mltracker/backend/venv/bin/gunicorn \
+ExecStart=__REPO_DIR__/backend/venv/bin/gunicorn \
     -c gunicorn.conf.py \
     "app:create_app()"
 ExecReload=/bin/kill -s HUP $MAINPID
