@@ -371,7 +371,7 @@ run = wandb.resume(project="mnist", name="exp_a3f2b1")
 
 **Credentials** — 4-level priority chain:
 1. Explicit `api_key=` / `host=` argument
-2. `WANDB_API_KEY` / `WANDB_HOST` environment variables
+2. `MLTRACKER_API_KEY` / `MLTRACKER_HOST` environment variables
 3. `~/.mltracker` config file (saved automatically, `chmod 600`)
 4. Interactive prompt — asked once, saved to `~/.mltracker`
 

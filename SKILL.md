@@ -160,7 +160,7 @@ Project view: one card per image key; `runs` has one entry per project run, with
 Single step: `{step, ts, loss: 0.3, ...}`. Multiple steps: `{"steps": [...]}`. Server handles both. Never send an empty `steps` list.
 
 ### Credentials priority: explicit arg → env var → `~/.mltracker` file → interactive prompt
-Prompt saves to `~/.mltracker` (chmod 600). Env vars: `WANDB_API_KEY`, `WANDB_HOST`.
+Prompt saves to `~/.mltracker` (chmod 600). Env vars: `MLTRACKER_API_KEY`, `MLTRACKER_HOST`.
 
 ---
 
