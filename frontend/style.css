@@ -491,6 +491,77 @@ button:hover { background: #2563eb !important; border-color: #2563eb !important;
 .status-badge.crashed  { background: rgba(239,68,68,0.15);   color: #ef4444; }
 
 /* ===================================================================
+   Admin panel
+   =================================================================== */
+.admin-panel {
+  padding: 20px;
+  max-width: 1000px;
+}
+
+.admin-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 16px;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.admin-table th {
+  text-align: left;
+  padding: 7px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  vertical-align: middle;
+}
+
+.admin-table tr:hover td { background: var(--hover-bg); }
+
+.admin-row td { background: rgba(233,69,96,0.06); }
+.admin-row td:first-child::after {
+  content: ' ★';
+  color: var(--accent);
+  font-size: 10px;
+}
+
+.admin-user-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.admin-avatar-icon { font-size: 22px; color: var(--text-dim); }
+
+.admin-cell-dim { color: var(--text-dim); }
+
+.active-btn { background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important; }
+
+/* ===================================================================
    Scrollbar styling (webkit)
    =================================================================== */
 ::-webkit-scrollbar { width: 6px; height: 6px; }

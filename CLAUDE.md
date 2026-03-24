@@ -69,7 +69,8 @@ mltracker/
 │   ├── routes/
 │   │   ├── api.py          Write API — log scalars & images (API key auth)
 │   │   ├── projects.py     Project CRUD (session auth)
-│   │   └── runs.py         Run CRUD + data retrieval (session auth)
+│   │   ├── runs.py         Run CRUD + data retrieval (session auth)
+│   │   └── admin.py        Admin dashboard API (first-user-is-admin, session auth)
 │   └── requirements.txt
 ├── frontend/
 │   ├── index.html          HTML shell + import maps (Vue, Chart.js, FA CDN)
@@ -222,6 +223,12 @@ All API routes under `/api/v1/`. Scripts use `Authorization: Bearer <api_key>`.
 > ```
 > Otherwise a typo'd `/api/v1/foo` returns HTML 200, silently breaking API clients.
 
+### Admin endpoint (session auth)
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/api/v1/admin/users` | All users + stats; 403 if not admin |
+
 ---
 
 ## Frontend
@@ -230,7 +237,8 @@ All API routes under `/api/v1/`. Scripts use `Authorization: Bearer <api_key>`.
 
 ```
 App
-├── TopBar        (logo · user avatar · API key copy · theme toggle · logout)
+├── TopBar        (logo · user avatar · API key copy · admin toggle · theme toggle · logout)
+├── AdminPanel    (admin only — user stats table; replaces left+main when active)
 ├── LeftPanel     (project/run collapsible tree with status dots + trash icons)
 ├── MainPanel     (card grid with persistent layout)
 │   ├── DashCard      (draggable + resizable wrapper)
@@ -303,6 +311,18 @@ Merged step list: `[...new Set(runs.flatMap(r => r.images.map(x => x.step)))].so
 ### Auto-refresh
 
 `setTimeout`-rescheduled (not `setInterval`). 5s base; exponential backoff on failures up to 60s; reset to 5s on success. **Always cleared** on selection change or unmount.
+
+**Image auto-advance:** `ImageSlider` watches total image count; when it increases (new step logged), `_idx` jumps to the last step automatically.
+
+### Admin Dashboard
+
+- **First user** (lowest `id` in `users` table) is admin — determined at runtime, no schema change.
+- `/auth/me` includes `is_admin: bool` — checked on every load via `SELECT MIN(id) FROM users`.
+- `GET /api/v1/admin/users` — returns all users with: `project_count`, `run_count`, `total_run_seconds` (sum of `finished_at - created_at` for finished runs), `last_active`, `created_at`. Guarded by `admin_required` decorator (403 for non-admins).
+- **TopBar** shows `fa-users-gear` button only when `user.is_admin`; highlighted (accent colour) when active.
+- **AdminPanel** replaces LeftPanel + MainPanel when toggled; shows a table with avatar, name, email, stats. First-user row has accent tint + ★.
+
+> ⚠️ **Admin check must query `MIN(id)` at request time** — never store the admin flag in the session cookie (it persists across user deletions and wouldn't update if the first user changes).
 
 > ⚠️ **Interval leak:** failing to clear on selection change causes multiple overlapping refresh timers that escalate API request rate as the user clicks around.
 

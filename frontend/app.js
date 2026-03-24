@@ -22,8 +22,8 @@ function run_color(idx) {
 // TopBar
 // ---------------------------------------------------------------------------
 const TopBar = defineComponent({
-  props: ['user'],
-  emits: ['toggle-theme', 'logout', 'key-copied'],
+  props: ['user', 'admin_active'],
+  emits: ['toggle-theme', 'logout', 'key-copied', 'toggle-admin'],
   setup(props, { emit }) {
     async function copy_key() {
       if (!props.user?.api_key) return;
@@ -43,6 +43,13 @@ const TopBar = defineComponent({
         h('span', { class: 'user-name', title: props.user.name }, props.user.name || props.user.email),
         h('button', { title: 'Copy API key', onClick: copy_key }, [h('i', { class: 'fa-solid fa-key' })]),
       ] : null,
+      props.user?.is_admin
+        ? h('button', {
+            title: 'Admin dashboard',
+            class: props.admin_active ? 'active-btn' : '',
+            onClick: () => emit('toggle-admin'),
+          }, [h('i', { class: 'fa-solid fa-users-gear' })])
+        : null,
       h('button', { title: 'Toggle theme', onClick: () => emit('toggle-theme') }, [
         h('i', { class: 'fa-solid fa-sun' }),
       ]),
@@ -50,6 +57,92 @@ const TopBar = defineComponent({
         h('i', { class: 'fa-solid fa-right-from-bracket' }),
       ]),
     ]);
+  },
+});
+
+// ---------------------------------------------------------------------------
+// AdminPanel
+// ---------------------------------------------------------------------------
+const AdminPanel = defineComponent({
+  setup() {
+    const users    = ref([]);
+    const loading  = ref(true);
+    const error    = ref(null);
+
+    function fmt_duration(seconds) {
+      if (!seconds) return '—';
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      if (h > 0) return `${h}h ${m}m`;
+      return `${m}m`;
+    }
+
+    function fmt_date(ts) {
+      if (!ts) return '—';
+      return new Date(ts * 1000).toLocaleDateString();
+    }
+
+    onMounted(async () => {
+      try {
+        users.value = await api('/api/v1/admin/users');
+      } catch (e) {
+        error.value = e.message;
+      } finally {
+        loading.value = false;
+      }
+    });
+
+    return () => {
+      if (loading.value) return h('div', { class: 'main-panel' }, [
+        h('div', { class: 'loading-row' }, [h('i', { class: 'fa-solid fa-spinner fa-spin' }), 'Loading…']),
+      ]);
+      if (error.value) return h('div', { class: 'main-panel' }, [
+        h('div', { class: 'empty-state' }, [h('span', error.value)]),
+      ]);
+
+      return h('div', { class: 'main-panel' }, [
+        h('div', { class: 'admin-panel' }, [
+          h('div', { class: 'admin-header' }, [
+            h('i', { class: 'fa-solid fa-users-gear' }),
+            h('span', `Users  (${users.value.length})`),
+          ]),
+          h('table', { class: 'admin-table' }, [
+            h('thead', [
+              h('tr', [
+                h('th', '#'),
+                h('th', 'User'),
+                h('th', 'Projects'),
+                h('th', 'Runs'),
+                h('th', 'Tracking time'),
+                h('th', 'Last active'),
+                h('th', 'Joined'),
+              ]),
+            ]),
+            h('tbody', users.value.map((u, idx) =>
+              h('tr', { key: u.id, class: idx === 0 ? 'admin-row' : '' }, [
+                h('td', { class: 'admin-cell-dim' }, u.id),
+                h('td', [
+                  h('div', { class: 'admin-user-cell' }, [
+                    u.picture
+                      ? h('img', { class: 'admin-avatar', src: u.picture, alt: '' })
+                      : h('i', { class: 'fa-solid fa-circle-user admin-avatar-icon' }),
+                    h('div', [
+                      h('div', u.name || '—'),
+                      h('div', { class: 'admin-cell-dim' }, u.email),
+                    ]),
+                  ]),
+                ]),
+                h('td', u.project_count),
+                h('td', u.run_count),
+                h('td', fmt_duration(u.total_run_seconds)),
+                h('td', fmt_date(u.last_active)),
+                h('td', fmt_date(u.created_at)),
+              ])
+            )),
+          ]),
+        ]),
+      ]);
+    };
   },
 });
 
@@ -208,8 +301,20 @@ const ImageSlider = defineComponent({
   props: ['img_key', 'runs'],
   setup(props) {
     const _idx = ref(0);
-    // Reset only when the key changes (new selection), not on data refresh
+    // Reset when the key changes (new selection)
     watch(() => props.img_key, () => { _idx.value = 0; });
+    // Jump to latest when new images arrive
+    watch(
+      () => (props.runs || []).flatMap(r => r.images).length,
+      (newLen, oldLen) => {
+        if (newLen > oldLen) {
+          const steps = [...new Set(
+            (props.runs || []).flatMap(r => r.images.map(img => img.step))
+          )];
+          _idx.value = steps.length - 1;
+        }
+      }
+    );
 
     return () => {
       // Sorted union of all steps across every run
@@ -554,6 +659,7 @@ const App = defineComponent({
     const sel_run     = ref(null);
     const is_loading  = ref(false);
     const dash        = ref({ metrics: {}, image_cards: [], downsampled: false });
+    const admin_view  = ref(false);
 
     let _refresh_timer  = null;
     let _refresh_delay  = 5000;
@@ -809,27 +915,33 @@ const App = defineComponent({
 
     return () => h('div', { id: 'app-inner', style: 'display:contents' }, [
       h(TopBar, {
-        user: user.value,
-        onToggleTheme: toggle_theme,
-        onLogout: () => { window.location = '/auth/logout'; },
-        onKeyCopied: () => {},
+        user:         user.value,
+        admin_active: admin_view.value,
+        onToggleTheme:  toggle_theme,
+        onLogout:       () => { window.location = '/auth/logout'; },
+        onKeyCopied:    () => {},
+        onToggleAdmin:  () => { admin_view.value = !admin_view.value; },
       }),
-      h(LeftPanel, {
-        projects: projects.value,
-        sel_project_id: sel_project.value?.id ?? null,
-        sel_run_id:     sel_run.value?.id ?? null,
-        onSelectProject: select_project,
-        onSelectRun:     select_run,
-        onDeleteProject: delete_project,
-        onDeleteRun:     delete_run,
-      }),
-      h('div', { class: 'resize-handle lhandle', onMousedown: start_panel_resize }),
-      h(MainPanel, {
-        dash:        dash.value,
-        is_loading:  is_loading.value,
-        sel_project: sel_project.value,
-        sel_run:     sel_run.value,
-      }),
+      admin_view.value
+        ? [h(AdminPanel)]
+        : [
+            h(LeftPanel, {
+              projects: projects.value,
+              sel_project_id: sel_project.value?.id ?? null,
+              sel_run_id:     sel_run.value?.id ?? null,
+              onSelectProject: select_project,
+              onSelectRun:     select_run,
+              onDeleteProject: delete_project,
+              onDeleteRun:     delete_run,
+            }),
+            h('div', { class: 'resize-handle lhandle', onMousedown: start_panel_resize }),
+            h(MainPanel, {
+              dash:        dash.value,
+              is_loading:  is_loading.value,
+              sel_project: sel_project.value,
+              sel_run:     sel_run.value,
+            }),
+          ],
       h(StatusBar, {
         sel_project: sel_project.value,
         sel_run:     sel_run.value,

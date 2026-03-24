@@ -140,13 +140,14 @@ def me():
     if 'user' not in session:
         return jsonify({'logged_in': False})
     user = session['user']
-    row  = get_db().execute(
-        "SELECT api_key FROM users WHERE id = ?", (user['id'],)
-    ).fetchone()
+    db   = get_db()
+    row  = db.execute("SELECT api_key FROM users WHERE id = ?", (user['id'],)).fetchone()
     if not row:
         session.clear()
         return jsonify({'logged_in': False})
-    return jsonify({**user, 'api_key': row['api_key'], 'logged_in': True})
+    admin_row = db.execute("SELECT MIN(id) AS min_id FROM users").fetchone()
+    is_admin  = bool(admin_row and admin_row['min_id'] == user['id'])
+    return jsonify({**user, 'api_key': row['api_key'], 'logged_in': True, 'is_admin': is_admin})
 
 
 @auth_bp.post('/regenerate-key')

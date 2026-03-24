@@ -25,9 +25,11 @@ def create_app(config=None):
     from routes.api      import api_bp
     from routes.projects import projects_bp
     from routes.runs     import runs_bp
+    from routes.admin    import admin_bp
     app.register_blueprint(api_bp,      url_prefix='/api/v1')
     app.register_blueprint(projects_bp, url_prefix='/api/v1')
     app.register_blueprint(runs_bp,     url_prefix='/api/v1')
+    app.register_blueprint(admin_bp,    url_prefix='/api/v1')
 
     # Health endpoint — deep check (verifies DB is reachable)
     @app.get('/health')

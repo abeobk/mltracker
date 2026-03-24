@@ -959,3 +959,43 @@ async function refresh() {
 ```
 Use `setTimeout` (rescheduled on each tick) rather than `setInterval` — this naturally
 applies the variable delay and avoids the interval accumulation problem entirely.
+
+---
+
+### S-59 · First-user-is-admin pattern — check at request time, never store in session
+
+Admin status is determined dynamically: the user whose `id = MIN(id)` in the `users` table is admin. Never cache this in the session cookie — the cookie persists across restarts and wouldn't update if users were deleted.
+
+**`admin_required` decorator:**
+```python
+def _is_admin(user_id: int) -> bool:
+    row = get_db().execute("SELECT MIN(id) AS min_id FROM users").fetchone()
+    return row and row['min_id'] == user_id
+
+def admin_required(f):
+    @wraps(f)
+    @login_required
+    def wrapper(*args, **kwargs):
+        if not _is_admin(session['user']['id']):
+            return jsonify({'error': 'Forbidden'}), 403
+        return f(*args, **kwargs)
+    return wrapper
+```
+
+**`/auth/me`** includes `is_admin: bool` so the frontend can conditionally render admin UI on startup — computed fresh on each `/me` call.
+
+**Admin stats query** — one round-trip for all users:
+```sql
+SELECT u.id, u.email, u.name, u.picture, u.created_at,
+       COUNT(DISTINCT p.id)  AS project_count,
+       COUNT(DISTINCT r.id)  AS run_count,
+       COALESCE(SUM(CASE WHEN r.finished_at IS NOT NULL
+                         THEN r.finished_at - r.created_at ELSE 0 END), 0) AS total_run_seconds,
+       MAX(r.created_at)     AS last_active
+FROM users u
+LEFT JOIN projects p ON p.user_id = u.id
+LEFT JOIN runs r     ON r.project_id = p.id
+GROUP BY u.id ORDER BY u.id
+```
+
+**Frontend:** `TopBar` shows `fa-users-gear` only when `user.is_admin`. Toggling sets `admin_view` ref; when true, `AdminPanel` replaces `LeftPanel + MainPanel` in the render tree.
