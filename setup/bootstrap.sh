@@ -4,8 +4,8 @@
 #
 # Usage:
 #   1. SSH into your EC2 instance
-#   2. Upload this repo:  git clone <your-repo-url> ~/mltracker
-#   3. Run:               sudo bash ~/mltracker/setup/bootstrap.sh
+#   2. Clone the repo anywhere: git clone <your-repo-url> ~/mltracker
+#   3. Run from any location:   sudo bash ~/mltracker/setup/bootstrap.sh
 #
 # What it does:
 #   - Installs system packages (Python 3.11, Nginx, Redis, Certbot, Git)
@@ -22,12 +22,15 @@
 
 set -euo pipefail
 
-REPO_DIR="/home/ubuntu/mltracker"
+# Resolve repo root from the script's own location (works wherever it is cloned)
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VENV_DIR="$REPO_DIR/backend/venv"
 DATA_MOUNT="/mnt/mltracker_data"
 SERVICE_NAME="mltracker"
 NGINX_SITE="/etc/nginx/sites-available/$SERVICE_NAME"
 LOG_DIR="/var/log/gunicorn"
+# Detect the user who owns the repo (works for ubuntu, ec2-user, or any other login)
+REPO_USER="$(stat -c '%U' "$REPO_DIR")"
 
 # ── Colour helpers ────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
@@ -36,7 +39,7 @@ warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
 [[ $EUID -ne 0 ]] && error "Run as root: sudo bash $0"
-[[ ! -d "$REPO_DIR" ]] && error "Repo not found at $REPO_DIR — clone it first."
+info "Using repo at $REPO_DIR"
 
 # =============================================================================
 # 1. System packages
@@ -88,16 +91,16 @@ fi
 
 mkdir -p "$DATA_MOUNT/mltracker"
 mkdir -p "$DATA_MOUNT/backups"
-chown -R ubuntu:ubuntu "$DATA_MOUNT"
+chown -R "$REPO_USER:$REPO_USER" "$DATA_MOUNT"
 info "Data volume ready at $DATA_MOUNT"
 
 # =============================================================================
 # 3. Python venv + dependencies
 # =============================================================================
 info "Creating Python venv..."
-sudo -u ubuntu python3.11 -m venv "$VENV_DIR"
-sudo -u ubuntu "$VENV_DIR/bin/pip" install --quiet --upgrade pip
-sudo -u ubuntu "$VENV_DIR/bin/pip" install --quiet -r "$REPO_DIR/backend/requirements.txt"
+sudo -u "$REPO_USER" python3.11 -m venv "$VENV_DIR"
+sudo -u "$REPO_USER" "$VENV_DIR/bin/pip" install --quiet --upgrade pip
+sudo -u "$REPO_USER" "$VENV_DIR/bin/pip" install --quiet -r "$REPO_DIR/backend/requirements.txt"
 info "Python dependencies installed."
 
 # =============================================================================
@@ -116,7 +119,7 @@ fi
 # 5. Gunicorn log directory
 # =============================================================================
 mkdir -p "$LOG_DIR"
-chown ubuntu:ubuntu "$LOG_DIR"
+chown "$REPO_USER:$REPO_USER" "$LOG_DIR"
 
 # =============================================================================
 # 6. Logrotate config for Gunicorn

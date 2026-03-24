@@ -150,6 +150,8 @@ git clone https://github.com/abeobk/mltracker.git ~/mltracker
 sudo bash ~/mltracker/setup/bootstrap.sh
 ```
 
+The scripts detect the repo location automatically from their own path — you can clone the repo anywhere, not just `~/mltracker`.
+
 The script will:
 - Install Python 3.11, Nginx, Redis, Certbot, and dependencies
 - Detect and format the secondary EBS volume (mounts at `/mnt/mltracker_data`)

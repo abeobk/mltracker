@@ -4,7 +4,7 @@
 #
 # Usage:
 #   Run AFTER bootstrap.sh and AFTER your DNS A-record is pointing at this IP.
-#   sudo bash ~/mltracker/setup/certbot.sh
+#   sudo bash /path/to/mltracker/setup/certbot.sh
 #
 # What it does:
 #   - Obtains a Let's Encrypt certificate via certbot --nginx
