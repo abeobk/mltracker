@@ -203,6 +203,58 @@ sudo bash ~/mltracker/setup/update.sh
 
 Pulls the latest code, syncs Python dependencies, and restarts Gunicorn.
 
+### Using a custom domain or subdomain
+
+**Recommended — subdomain (`mltracker.abc.com`):**
+
+Zero code changes needed. Add a DNS A record:
+```
+mltracker.abc.com  →  <your EC2 public IP>
+```
+Then run certbot with that domain:
+```bash
+sudo bash ~/mltracker/setup/certbot.sh
+# enter: mltracker.abc.com
+```
+
+---
+
+**Alternative — subpath (`abc.com/mltracker`):**
+
+Requires changes in three places:
+
+1. **Nginx** — add a location block in your existing `abc.com` server config:
+```nginx
+location /mltracker/ {
+    proxy_pass         http://127.0.0.1:8000/;
+    proxy_set_header   Host              $host;
+    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+    proxy_read_timeout 120s;
+}
+```
+
+2. **Gunicorn** — pass `SCRIPT_NAME` so Flask generates correct URLs:
+```bash
+# In /etc/mltracker.env, add:
+SCRIPT_NAME=/mltracker
+```
+Then in `gunicorn.conf.py`, add:
+```python
+raw_env = ["SCRIPT_NAME=/mltracker"]
+```
+
+3. **Frontend** — change the base URL for all API calls in `frontend/app.js`:
+```js
+// top of app.js, replace the api() helper path prefix
+const API_BASE = window._API_BASE || '';
+async function api(path, opts = {}) {
+  const r = await fetch(API_BASE + path, ...);
+```
+And set `window._API_BASE = '/mltracker'` in `index.html`.
+
+> The subdomain approach is much simpler — use it if you have control over DNS.
+
 ---
 
 ## Project Structure

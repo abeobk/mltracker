@@ -1103,3 +1103,44 @@ onSelectProject: id => { select_project(id); if (is_mobile()) panel_open.value =
 **Backdrop:** a `div.panel-backdrop` with `display:none` / `display:block` controlled by `.open` class; `onClick: toggle_panel`.
 
 **Cache busting:** bump `?v=N` on `<link href="style.css?v=N">` and `<script src="app.js?v=N">` whenever you need mobile browsers to drop their cached copy. Increment N on each change.
+
+---
+
+### S-64 · SDK credential persistence — prompt once, save to ~/.mltracker
+
+If no API key is found in args or env, prompt the user interactively and save to `~/.mltracker` (mode 600):
+
+```python
+_CONFIG_FILE = os.path.join(os.path.expanduser('~'), '.mltracker')
+
+def _load_config() -> dict:
+    cfg = {}
+    if os.path.isfile(_CONFIG_FILE):
+        with open(_CONFIG_FILE) as f:
+            for line in f:
+                if '=' in line and not line.startswith('#'):
+                    k, _, v = line.partition('=')
+                    cfg[k.strip()] = v.strip()
+    return cfg
+
+def _save_config(cfg: dict):
+    with open(_CONFIG_FILE, 'w') as f:
+        f.write('# MLTracker credentials\n')
+        for k, v in cfg.items():
+            f.write(f'{k}={v}\n')
+    os.chmod(_CONFIG_FILE, 0o600)
+```
+
+Priority order: explicit arg → env var → `~/.mltracker` → interactive prompt → save.
+Add `~/.mltracker` (just the filename, no path) to `.gitignore`.
+
+### S-65 · Subdomain vs subpath hosting
+
+**Subdomain** (`mltracker.abc.com`) — zero code changes. DNS A record + certbot. Always prefer this.
+
+**Subpath** (`abc.com/mltracker`) — requires three changes:
+1. Nginx `location /mltracker/ { proxy_pass http://127.0.0.1:8000/; }`
+2. Gunicorn `SCRIPT_NAME=/mltracker` env var so Flask generates correct URLs
+3. Frontend `API_BASE` prefix on all `fetch()` calls in `app.js`
+
+The frontend change is the painful part — touches every API call. Use subdomain to avoid it.

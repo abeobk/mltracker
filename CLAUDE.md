@@ -365,7 +365,17 @@ run = wandb.resume(project="mnist", name="exp_a3f2b1")
 - `atexit.register(run._auto_finish)` calls `finish(status='crashed')` if `finish()` was never called
 - `_active_runs` set tracks all live runs; removed on `finish()`
 
-**Credentials:** `WANDB_API_KEY` (required) and `WANDB_HOST` (default `http://localhost:5000`) from env vars, or passed explicitly.
+**Credentials** — 4-level priority chain:
+1. Explicit `api_key=` / `host=` argument
+2. `WANDB_API_KEY` / `WANDB_HOST` environment variables
+3. `~/.mltracker` config file (saved automatically, `chmod 600`)
+4. Interactive prompt — asked once, saved to `~/.mltracker`
+
+**Packaging:** `sdk/` directory contains `pyproject.toml` for building a wheel:
+```bash
+cd sdk && python -m build --wheel
+pip install sdk/dist/mltracker-0.1.0-py3-none-any.whl
+```
 
 ---
 
