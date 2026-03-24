@@ -14,6 +14,11 @@ data/
 *.log
 logs/
 
+# ── SDK build artifacts ───────────────────────────────────────────────────────
+sdk/dist/
+sdk/build/
+sdk/*.egg-info/
+
 # ── Python ────────────────────────────────────────────────────────────────────
 backend/venv/
 __pycache__/
