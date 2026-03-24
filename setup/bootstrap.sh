@@ -160,6 +160,8 @@ case "$DATA_CHOICE" in
     lsblk -o NAME,SIZE,TYPE,MOUNTPOINT | grep -v loop
     read -rp "Device: " DEVICE
     [[ -z "$DEVICE" ]] && error "Device cannot be empty."
+    # Prepend /dev/ if the user omitted it (e.g. typed "nvme1n1" instead of "/dev/nvme1n1")
+    [[ "$DEVICE" != /dev/* ]] && DEVICE="/dev/$DEVICE"
     [[ ! -b "$DEVICE" ]] && error "Device $DEVICE not found. Run 'lsblk' to list available devices."
 
     DATA_MOUNT="/mnt/mltracker_data"
