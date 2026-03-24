@@ -300,6 +300,7 @@ App
 
 **Drag reorder:** mousedown on drag bar → global mouseup reorders `card_order`.
 **Resize:** mousedown on resize handle → track delta → update `card_sizes[key]` (min w:280, min h:150).
+**Default sizes:** metric chart `420×220px`, image card `420×280px`. Minimum after resize: `280px` wide, `150px` tall.
 **Selection persistence:** last selected project/run saved to `localStorage` as `wandb_last_sel: {proj_id, run_id}` and restored on page load.
 
 ### MetricChart (Chart.js)
