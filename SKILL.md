@@ -357,17 +357,16 @@ function startResize(e) {
 
 ### S-28 · Commit checklist — docs must stay current
 Before every `git commit`, update as needed:
-1. `PROGRAM.md` — evolve the spec to match the current implementation
+1. `CLAUDE.md` — evolve the spec to match the current implementation
 2. `SKILL.md` — add any new pattern or gotcha learned
 
 ### S-29 · User decisions override original spec
-Record any deliberate deviation in `PROGRAM.md` so future sessions don't re-introduce removed features.
+Record any deliberate deviation in `CLAUDE.md` so future sessions don't re-introduce removed features.
 
 ### S-30 · File locations
 | File | Purpose |
 |------|---------|
-| `PROGRAM.md` | Authoritative spec and architecture |
-| `PLAN.md` | Implementation, test, and deployment plan |
+| `CLAUDE.md` | Authoritative spec, architecture, and agent workflow rules |
 | `SKILL.md` | Patterns, gotchas, and knowhow |
 
 ---
@@ -999,3 +998,42 @@ GROUP BY u.id ORDER BY u.id
 ```
 
 **Frontend:** `TopBar` shows `fa-users-gear` only when `user.is_admin`. Toggling sets `admin_view` ref; when true, `AdminPanel` replaces `LeftPanel + MainPanel` in the render tree.
+
+---
+
+### S-60 · Multi-distro bootstrap — detect distro before installing packages
+
+`/etc/os-release` is the portable way to detect the distro. Source it and branch on `$ID` + `$VERSION_ID`:
+
+```bash
+source /etc/os-release
+if   [[ "$ID" == "amzn" && "$VERSION_ID" == "2023" ]]; then DISTRO="al2023"
+elif [[ "$ID" == "amzn" ]];                               then DISTRO="al2"
+elif [[ "$ID" == "ubuntu" || "$ID" == "debian" ]];        then DISTRO="ubuntu"
+fi
+```
+
+Per-distro differences to handle:
+
+| | Ubuntu | Amazon Linux 2023 | Amazon Linux 2 |
+|---|---|---|---|
+| Package manager | `apt-get` | `dnf` | `yum` |
+| Python 3.11 pkg | `python3.11 python3.11-venv` | `python3.11 python3.11-pip` | not in repos → use `python3.8` via `amazon-linux-extras` |
+| Redis service | `redis-server` | `redis6` | `redis` |
+| Nginx config dir | `/etc/nginx/sites-available/` + symlink to `sites-enabled/` | `/etc/nginx/conf.d/` (drop-in) | `/etc/nginx/conf.d/` (drop-in) |
+
+Store these as variables (`PYTHON_BIN`, `REDIS_SERVICE`, `NGINX_SITE`, `USE_SITES_ENABLED`) and use them throughout — avoids duplicate if/else blocks per step.
+
+### S-61 · Derive repo path and owner from the script itself — never hardcode
+
+Setup scripts should work wherever the repo is cloned and whatever user owns it:
+
+```bash
+# Repo root = one level above setup/
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# Owner = user who owns the repo dir (ubuntu, ec2-user, etc.)
+REPO_USER="$(stat -c '%U' "$REPO_DIR")"
+```
+
+All `sudo -u`, `chown`, and path references then use `$REPO_USER` and `$REPO_DIR`.
+The systemd service file is patched at install time with the real path via `sed`.

@@ -125,7 +125,7 @@ Environment variables:
 
 ### 1. Launch an EC2 instance
 
-- **AMI:** Ubuntu 22.04 LTS
+- **AMI:** Ubuntu 22.04 LTS or Amazon Linux 2023 (both supported)
 - **Instance type:** `t3.small` (or larger)
 - **Storage:** 20 GB root volume + a separate EBS volume for data (recommended: 20–100 GB)
 - **Security group inbound rules:**
@@ -150,7 +150,7 @@ git clone https://github.com/abeobk/mltracker.git ~/mltracker
 sudo bash ~/mltracker/setup/bootstrap.sh
 ```
 
-The scripts detect the repo location automatically from their own path — you can clone the repo anywhere, not just `~/mltracker`.
+The scripts detect the repo location and owner automatically from their own path — you can clone anywhere, and the scripts work with any login user (`ubuntu`, `ec2-user`, etc.). Distro detection is automatic: Ubuntu uses `apt-get` and `sites-enabled` symlinks; Amazon Linux 2023 uses `dnf` and `conf.d` drop-ins.
 
 The script will:
 - Install Python 3.11, Nginx, Redis, Certbot, and dependencies

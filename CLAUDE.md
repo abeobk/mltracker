@@ -394,12 +394,19 @@ run = wandb.resume(project="mnist", name="exp_a3f2b1")
 
 ## Deployment (AWS EC2)
 
-**Instance:** `t3.small`, Ubuntu 22.04, 20 GB root + dedicated EBS for `data/`.
+**Instance:** `t3.small`, Ubuntu 22.04 or Amazon Linux 2023, 20 GB root + dedicated EBS for `data/`.
 **Inbound:** ports 22 (your IP), 80, 443.
+
+**Setup scripts** (in `setup/`):
+- `bootstrap.sh` — one-time setup; auto-detects distro (Ubuntu / AL2023 / AL2), derives repo path and owner from script location — no hardcoded paths
+- `certbot.sh` — run after DNS is live; installs TLS cert, flips `SESSION_COOKIE_SECURE=true`
+- `update.sh` — `git pull` + pip sync + service restart
+- `env.template` — copy to `/etc/mltracker.env` and fill in secrets
 
 **Key config:**
 - Gunicorn: `bind=127.0.0.1:8000`, `workers=4`, `worker_class=sync`, `timeout=120`
 - Nginx: serves `frontend/` static; proxies `/(api|auth|files|health)/` to `:8000`; `client_max_body_size 20m`
+- Ubuntu Nginx: `sites-available/` + symlink to `sites-enabled/`; Amazon Linux: `conf.d/` drop-in
 - HTTPS via Let's Encrypt (`certbot --nginx`); set `SESSION_COOKIE_SECURE=true` after
 - Systemd service with `EnvironmentFile=/etc/mltracker.env`, `Restart=on-failure`, `PrivateTmp=true`
 
@@ -408,15 +415,15 @@ run = wandb.resume(project="mnist", name="exp_a3f2b1")
 SECRET_KEY=...
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
-DB_PATH=/mnt/wandb_data/mltracker.db
-FILES_DIR=/mnt/wandb_data/files
+DB_PATH=/mnt/mltracker_data/mltracker.db
+FILES_DIR=/mnt/mltracker_data/mltracker
 SESSION_COOKIE_SECURE=true
 ```
 
 **Maintenance:**
-- Update: `git pull` → `pip install -r requirements.txt` → `systemctl restart mltracker`
+- Update: `sudo bash setup/update.sh`
 - Logs: `journalctl -u mltracker -f`, `/var/log/gunicorn/`, `/var/log/nginx/`
-- DB backup: `sqlite3 mltracker.db ".backup '/mnt/backup/wandb_$(date +%Y%m%d).db'"` — backup target must be a **separate EBS volume or S3**, not the same data volume
+- DB backup: `sqlite3 mltracker.db ".backup '/mnt/backup/mltracker_$(date +%Y%m%d).db'"` — backup target must be a **separate EBS volume or S3**, not the same data volume
 
 > ⚠️ **Log rotation required** — without logrotate, Gunicorn logs fill the root volume. Rotate daily, keep 14 days compressed, use `copytruncate`.
 
@@ -430,7 +437,7 @@ SESSION_COOKIE_SECURE=true
 [x] Phase 3: storage.py + all API routes          → full log/query/delete cycle works
 [x] Phase 4: frontend (index.html, style.css, app.js) → dashboard shows charts + images
 [x] Phase 5: mltracker.py SDK                   → end-to-end script → dashboard shows data
-[ ] Deployment: EC2 + Gunicorn + Nginx + HTTPS
+[x] Deployment: EC2 setup scripts (bootstrap, certbot, update)
 ```
 
 **Deployment verification:**
