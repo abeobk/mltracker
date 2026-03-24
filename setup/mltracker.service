@@ -9,7 +9,7 @@ Group=__REPO_USER__
 WorkingDirectory=__REPO_DIR__/backend
 EnvironmentFile=/etc/mltracker.env
 ExecStart=__REPO_DIR__/backend/venv/bin/gunicorn \
-    -c gunicorn.conf.py \
+    -c __REPO_DIR__/gunicorn.conf.py \
     "app:create_app()"
 ExecReload=/bin/kill -s HUP $MAINPID
 Restart=on-failure
