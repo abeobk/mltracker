@@ -16,6 +16,10 @@ def create_app(config=None):
     init_db(app)
     app.teardown_appcontext(close_db)
 
+    # Rate limiter (Redis-backed; must be initialised before blueprints)
+    from limiter import limiter
+    limiter.init_app(app)
+
     # Auth (OAuth client + blueprints)
     from auth import init_oauth, auth_bp
     init_oauth(app)

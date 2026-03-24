@@ -116,8 +116,11 @@ Single-column grid. Left panel is a fixed overlay (slides in from left, z-index 
 ## Authentication
 
 ### Browser — Google OAuth 2.0
-- `/auth/login` → Google consent → `/auth/callback` → session cookie (`user_id`, `email`, `name`, `picture`)
-- `/auth/logout` → clear session
+Three-stage flow:
+1. `/auth/login` — serves `login.html` (static page with "Continue with Google" button)
+2. User clicks button → `/auth/google` → Google OAuth consent screen
+3. Google redirects → `/auth/callback` → creates/updates user in DB, sets session cookie (`id`, `email`, `name`, `picture`), redirects to `/`
+- `/auth/logout` → clear session, redirect to `/auth/login`
 
 ### Scripts — API Key (Bearer token)
 - 32-byte hex key via `secrets.token_hex(32)`, stored plain in `users.api_key`
@@ -399,7 +402,7 @@ pip install sdk/dist/mltracker-0.1.0-py3-none-any.whl
 - **Path sanitisation:** `_safe_name()` on all user-supplied path components. Never use raw project/run/key names as filesystem paths.
 - **`get_json()` guard:** always `isinstance(data, dict)` before field access.
 - **SPA catch-all guard:** abort(404) for `api/`, `auth/`, `files/`, `health` prefixes.
-- **Rate limiting:** `flask-limiter` with **Redis backend** (not in-memory — in-memory is per-worker, effective limit = 4× configured with 4 workers). Apply to `/log`, `POST /runs`, `/auth/regenerate-key`.
+- **Rate limiting:** `flask-limiter` with **Redis backend** (`RATELIMIT_STORAGE_URI` from `REDIS_URL` env var, defaults to `redis://localhost:6379`). Limits: `POST /runs` 60/min, `POST /runs/<id>/log` 600/min, `POST /auth/regenerate-key` 5/hr. Rate-limit key is the Bearer token for API endpoints, remote IP for session endpoints. Implemented in `backend/limiter.py`. Do NOT use in-memory storage — with 4 Gunicorn workers the effective limit becomes 4× the configured value.
 - **Cascade deletes:** `ON DELETE CASCADE` on all FK relationships.
 - **Secrets:** in `/etc/mltracker.env` (mode 600, root-owned), loaded via systemd `EnvironmentFile=`. Never in `/etc/environment` (world-readable).
 - **OAuth state:** `authlib` validates state automatically — do not bypass.

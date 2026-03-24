@@ -4,6 +4,7 @@ from flask import (Blueprint, redirect, url_for, session, jsonify,
                    request, g, current_app)
 from authlib.integrations.flask_client import OAuth
 from db import get_db
+from limiter import limiter
 
 auth_bp = Blueprint('auth', __name__)
 oauth    = OAuth()
@@ -152,6 +153,7 @@ def me():
 
 @auth_bp.post('/regenerate-key')
 @login_required
+@limiter.limit('5 per hour')
 def regenerate_key():
     new_key = secrets.token_hex(32)
     db = get_db()

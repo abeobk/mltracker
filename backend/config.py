@@ -14,6 +14,10 @@ class Config:
     SESSION_COOKIE_SAMESITE = 'Lax'
     SESSION_COOKIE_SECURE   = os.environ.get('SESSION_COOKIE_SECURE', 'false').lower() == 'true'
 
+    # Rate limiting — flask-limiter reads these config keys automatically
+    RATELIMIT_STORAGE_URI    = os.environ.get('REDIS_URL', 'redis://localhost:6379')
+    RATELIMIT_HEADERS_ENABLED = True   # add X-RateLimit-* headers to responses
+
 
 class TestConfig(Config):
     TESTING = True

@@ -6,6 +6,7 @@ from flask import Blueprint, request, jsonify, g, current_app
 
 from auth import api_key_required
 from db import get_db
+from limiter import limiter
 from storage import save_image, append_metrics
 
 api_bp = Blueprint('api', __name__)
@@ -77,6 +78,7 @@ def _get_owned_run(run_id, user_id):
 # POST /api/v1/runs  — create or return existing run
 # ---------------------------------------------------------------------------
 @api_bp.post('/runs')
+@limiter.limit('60 per minute')
 @api_key_required
 def create_run():
     data = request.get_json(force=True)
@@ -137,6 +139,7 @@ def create_run():
 #                 has accumulated multiple steps faster than one POST
 # ---------------------------------------------------------------------------
 @api_bp.post('/runs/<int:run_id>/log')
+@limiter.limit('600 per minute')
 @api_key_required
 def log_step(run_id):
     run = _get_owned_run(run_id, g.user_id)
