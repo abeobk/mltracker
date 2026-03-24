@@ -207,7 +207,7 @@ button:hover { background: #2563eb !important; border-color: #2563eb !important;
 .main-panel {
   grid-area: main;
   background: var(--bg);
-  overflow-y: auto;
+  overflow: auto;   /* both axes — groups can grow beyond panel width */
   padding: 16px;
 }
 
@@ -217,6 +217,7 @@ button:hover { background: #2563eb !important; border-color: #2563eb !important;
   flex-wrap: wrap;
   gap: 12px;
   align-items: flex-start;
+  min-width: min-content; /* lets groups expand beyond the panel width */
 }
 
 /* ===================================================================

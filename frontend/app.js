@@ -785,10 +785,11 @@ const App = defineComponent({
     const dash        = ref({ metrics: {}, image_cards: [], downsampled: false });
     const admin_view  = ref(false);
 
-    let _refresh_timer  = null;
-    let _refresh_delay  = 5000;
-    let _fail_count     = 0;
-    let _refresh_run_id = null;
+    let _refresh_timer   = null;
+    let _refresh_delay   = 5000;
+    let _fail_count      = 0;
+    let _refresh_run_id  = null;
+    let _refresh_proj_id = null;
 
     async function init() {
       const me = await api('/auth/me');
@@ -858,6 +859,7 @@ const App = defineComponent({
       save_last_selection();
       is_loading.value  = true;
       try { await load_project_dash(proj); } finally { is_loading.value = false; }
+      if ((proj.runs || []).some(r => r.status === 'running')) start_project_refresh(proj.id);
     }
 
     async function _do_select_run(proj, run) {
@@ -971,29 +973,50 @@ const App = defineComponent({
 
     // ── Auto-refresh ────────────────────────────────────────────────
     function start_refresh(run_id) {
-      _refresh_run_id = run_id;
-      _refresh_delay  = 5000;
-      _fail_count     = 0;
+      _refresh_run_id  = run_id;
+      _refresh_proj_id = null;
+      _refresh_delay   = 5000;
+      _fail_count      = 0;
+      schedule_refresh();
+    }
+    function start_project_refresh(proj_id) {
+      _refresh_proj_id = proj_id;
+      _refresh_run_id  = null;
+      _refresh_delay   = 5000;
+      _fail_count      = 0;
       schedule_refresh();
     }
     function schedule_refresh() {
       _refresh_timer = setTimeout(do_refresh, _refresh_delay);
     }
     async function do_refresh() {
-      if (!_refresh_run_id || sel_run.value?.id !== _refresh_run_id) return;
       try {
-        const run_data = await api(`/api/v1/runs/${_refresh_run_id}`);
-        const proj = projects.value.find(p => p.id === sel_project.value?.id);
-        if (proj) {
-          const idx = proj.runs.findIndex(r => r.id === _refresh_run_id);
-          if (idx !== -1) proj.runs[idx] = { ...proj.runs[idx], ...run_data };
+        if (_refresh_run_id && sel_run.value?.id === _refresh_run_id) {
+          // ── Run refresh ────────────────────────────────────────────
+          const run_data = await api(`/api/v1/runs/${_refresh_run_id}`);
+          const proj = projects.value.find(p => p.id === sel_project.value?.id);
+          if (proj) {
+            const idx = proj.runs.findIndex(r => r.id === _refresh_run_id);
+            if (idx !== -1) proj.runs[idx] = { ...proj.runs[idx], ...run_data };
+          }
+          sel_run.value = { ...sel_run.value, ...run_data };
+          await load_run_dash(sel_run.value);
+          _fail_count    = 0;
+          _refresh_delay = 5000;
+          if (sel_run.value?.status === 'running') schedule_refresh();
+          else stop_refresh();
+
+        } else if (_refresh_proj_id && sel_project.value?.id === _refresh_proj_id && !sel_run.value) {
+          // ── Project refresh — reload runs then dashboard ───────────
+          const proj = projects.value.find(p => p.id === _refresh_proj_id);
+          if (!proj) { stop_refresh(); return; }
+          proj.runs = await api(`/api/v1/projects/${_refresh_proj_id}/runs`).catch(() => proj.runs);
+          await load_project_dash(proj);
+          _fail_count    = 0;
+          _refresh_delay = 5000;
+          if (proj.runs.some(r => r.status === 'running')) schedule_refresh();
+          else stop_refresh();
         }
-        sel_run.value = { ...sel_run.value, ...run_data };
-        await load_run_dash(sel_run.value);
-        _fail_count    = 0;
-        _refresh_delay = 5000;
-        if (sel_run.value?.status === 'running') schedule_refresh();
-        else stop_refresh();
       } catch (_) {
         _fail_count++;
         _refresh_delay = Math.min(60000, 5000 * Math.pow(2, _fail_count));
@@ -1002,8 +1025,9 @@ const App = defineComponent({
     }
     function stop_refresh() {
       clearTimeout(_refresh_timer);
-      _refresh_timer  = null;
-      _refresh_run_id = null;
+      _refresh_timer   = null;
+      _refresh_run_id  = null;
+      _refresh_proj_id = null;
     }
     onUnmounted(stop_refresh);
 
