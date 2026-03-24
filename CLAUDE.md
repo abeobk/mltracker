@@ -301,7 +301,7 @@ App
 **Drag reorder:** mousedown on drag bar → global mouseup reorders `card_order`.
 **Resize:** mousedown on resize handle → track delta → update `card_sizes[key]` (min w:280, min h:150).
 **Default sizes:** metric chart `420×220px`, image card `420×280px`. Minimum after resize: `280px` wide, `150px` tall.
-**Selection persistence:** last selected project/run saved to `localStorage` as `wandb_last_sel: {proj_id, run_id}` and restored on page load.
+**Selection persistence:** on load, URL query param `?run=<name>` takes priority — scans all projects for a matching run name and selects it directly. Falls back to `localStorage` key `wandb_last_sel: {proj_id, run_id}` if no URL param is present.
 
 ### MetricChart (Chart.js)
 
@@ -344,6 +344,13 @@ Merged step list: `[...new Set(runs.flatMap(r => r.images.map(x => x.step)))].so
 ## Client SDK (`sdk/mltracker.py`)
 
 Single file, only `requests` dependency.
+
+**`init()` prints on success and checks server health first:**
+```
+mltracker: project  mnist
+mltracker: run      exp_a3f2b1
+mltracker: view     https://mltracker.abeobk.com?run=exp_a3f2b1
+```
 
 ```python
 run = wandb.init(project="mnist", name="exp", config={"lr": 0.001})

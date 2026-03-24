@@ -487,7 +487,7 @@ def init(
     run           = _create_or_get_run(session, host, api_key, project, full_name, config)
     print(f"mltracker: project  {project}")
     print(f"mltracker: run      {run.name}")
-    print(f"mltracker: view     {host}")
+    print(f"mltracker: view     {host}?run={run.name}")
     return run
 
 

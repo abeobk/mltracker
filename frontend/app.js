@@ -675,7 +675,7 @@ const App = defineComponent({
       if (!me.logged_in) { window.location = '/auth/login'; return; }
       user.value = me;
       await load_projects();
-      await restore_last_selection();
+      await restore_from_url() || await restore_last_selection();
     }
 
     async function load_projects() {
@@ -694,6 +694,17 @@ const App = defineComponent({
           : null;
       if (val) localStorage.setItem('wandb_last_sel', JSON.stringify(val));
       else localStorage.removeItem('wandb_last_sel');
+    }
+
+    async function restore_from_url() {
+      const params = new URLSearchParams(window.location.search);
+      const run_name = params.get('run');
+      if (!run_name) return false;
+      for (const proj of projects.value) {
+        const run = (proj.runs || []).find(r => r.name === run_name);
+        if (run) { await _do_select_run(proj, run); return true; }
+      }
+      return false;
     }
 
     async function restore_last_selection() {
