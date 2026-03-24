@@ -331,6 +331,65 @@ button:hover { background: #2563eb !important; border-color: #2563eb !important;
 .card-resize-handle:hover::after { background: var(--accent); }
 
 /* ===================================================================
+   Metric group  (resizable container for path-prefixed cards)
+   =================================================================== */
+.metric-group {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  position: relative;
+  min-width: 480px;
+}
+
+.metric-group.is-dragging  { opacity: 0.4; outline: 2px dashed var(--border); }
+.metric-group.is-drag-over { outline: 2px solid var(--accent); }
+
+.metric-group-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  height: 32px;
+  background: var(--panel2);
+  border-bottom: 1px solid var(--border);
+  border-radius: 8px 8px 0 0;
+  cursor: grab;
+  user-select: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.metric-group-header:active { cursor: grabbing; }
+
+/* Children flow as equal-width cards, wrapping when the group is narrow */
+.metric-group-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+  padding-bottom: 20px; /* room for resize handle */
+}
+
+.metric-group-body .dashboard-card {
+  flex: 1 1 200px;
+  min-width: 200px;
+  width: auto !important; /* override inline width — flex controls sizing */
+}
+
+/* Group resize handle only moves horizontally */
+.metric-group > .card-resize-handle { cursor: e-resize; }
+.metric-group > .card-resize-handle::before {
+  bottom: 5px; right: 2px;
+  width: 10px; height: 1.5px;
+  transform: rotate(0deg);
+}
+.metric-group > .card-resize-handle::after {
+  bottom: 9px; right: 2px;
+  width: 10px; height: 1.5px;
+  transform: rotate(0deg);
+}
+
+/* ===================================================================
    Chart canvas  (fills .card-body height via height:100%)
    =================================================================== */
 .chart-canvas-wrap {
@@ -633,6 +692,8 @@ button:hover { background: #2563eb !important; border-color: #2563eb !important;
   /* Slightly larger touch targets */
   .tree-item { min-height: 38px; }
 
-  /* Cards full width on mobile */
+  /* Cards and groups full width on mobile */
   .dashboard-card { min-width: unset; width: 100% !important; }
+  .metric-group   { min-width: unset; width: 100% !important; }
+  .metric-group-body .dashboard-card { min-width: unset; }
 }

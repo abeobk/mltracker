@@ -284,6 +284,8 @@ App
 - Layout saved to `localStorage` as `{order, sizes}` under key `wandb_layout_run_<id>` or `wandb_layout_proj_<id>`
 - Restored on first data arrival for a selection
 
+**Path grouping:** metric/image keys containing `/` are grouped at render time by `compute_units(card_order)`. Keys sharing a prefix (e.g. `train/loss`, `train/acc`) render inside a `MetricGroup` container. `card_order` stays flat — groups are derived, never stored. Group width stored as `card_sizes['group::prefix'] = {w}`. Child cards get `width: null` (flex fills them evenly, wrapping on overflow). Drag reorders whole units — `start_drag` moves all flat keys of the unit together.
+
 > ⚠️ **Watcher must use string key, not array:**
 > ```js
 > // WRONG — new array every render, always triggers

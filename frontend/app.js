@@ -18,6 +18,29 @@ function run_color(idx) {
   return `hsl(${(idx * 137) % 360}, 65%, 55%)`;
 }
 
+// Group flat card_order keys by path prefix (e.g. "train/loss" → group "train")
+// Returns [{type:'single', unit_key, key} | {type:'group', unit_key, prefix, keys:[]}]
+function compute_units(order) {
+  const units = [];
+  const group_idx = {}; // prefix → index in units
+  for (const key of order) {
+    const slash = key.indexOf('/');
+    if (slash === -1) {
+      units.push({ type: 'single', unit_key: key, key });
+    } else {
+      const prefix = key.slice(0, slash);
+      const gk = 'group::' + prefix;
+      if (gk in group_idx) {
+        units[group_idx[gk]].keys.push(key);
+      } else {
+        group_idx[gk] = units.length;
+        units.push({ type: 'group', unit_key: gk, prefix, keys: [key] });
+      }
+    }
+  }
+  return units;
+}
+
 // ---------------------------------------------------------------------------
 // TopBar
 // ---------------------------------------------------------------------------
@@ -402,7 +425,7 @@ const DashCard = defineComponent({
         props.is_dragging  ? 'is-dragging'  : '',
         props.is_drag_over && !props.is_dragging ? 'is-drag-over' : '',
       ],
-      style: { width: props.width + 'px' },
+      style: props.width != null ? { width: props.width + 'px' } : {},
       onMouseenter: () => emit('drag-enter'),
     }, [
       h('div', {
@@ -419,6 +442,55 @@ const DashCard = defineComponent({
       h('div', { class: 'card-body', style: { height: props.height + 'px' } },
         slots.default?.()
       ),
+      h('div', { class: 'card-resize-handle', onMousedown: on_resize_mousedown }),
+    ]);
+  },
+});
+
+// ---------------------------------------------------------------------------
+// MetricGroup  — resizable container for path-grouped metric/image cards
+// ---------------------------------------------------------------------------
+const MetricGroup = defineComponent({
+  props: ['prefix', 'width', 'is_dragging', 'is_drag_over'],
+  emits: ['drag-start', 'drag-enter', 'resize-group'],
+  setup(props, { emit, slots }) {
+    function on_resize_mousedown(e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const start_x = e.clientX;
+      const start_w = props.width;
+      document.body.style.userSelect = 'none';
+      const on_move = ev => {
+        emit('resize-group', Math.max(480, start_w + ev.clientX - start_x));
+      };
+      const on_up = () => {
+        document.body.style.userSelect = '';
+        window.removeEventListener('mousemove', on_move);
+        window.removeEventListener('mouseup', on_up);
+      };
+      window.addEventListener('mousemove', on_move);
+      window.addEventListener('mouseup', on_up);
+    }
+
+    return () => h('div', {
+      class: [
+        'metric-group',
+        props.is_dragging ? 'is-dragging' : '',
+        props.is_drag_over && !props.is_dragging ? 'is-drag-over' : '',
+      ],
+      style: { width: props.width + 'px' },
+      onMouseenter: () => emit('drag-enter'),
+    }, [
+      h('div', {
+        class: 'metric-group-header',
+        onMousedown: e => { if (e.button === 0) emit('drag-start'); },
+      }, [
+        h('i', { class: 'fa-solid fa-grip-vertical card-grip' }),
+        h('i', { class: 'fa-solid fa-folder-open', style: 'font-size:11px;color:var(--text-dim)' }),
+        h('span', { class: 'card-key-label' }, props.prefix),
+      ]),
+      h('div', { class: 'metric-group-body' }, slots.default?.()),
       h('div', { class: 'card-resize-handle', onMousedown: on_resize_mousedown }),
     ]);
   },
@@ -468,6 +540,7 @@ const MainPanel = defineComponent({
     }
 
     function default_size(key) {
+      if (key.startsWith('group::')) return { w: DEFAULT_W * 2 + 12 };
       const is_metric = key in (props.dash.metrics || {});
       return { w: DEFAULT_W, h: is_metric ? DEFAULT_CHART_H : DEFAULT_IMAGE_H };
     }
@@ -526,18 +599,25 @@ const MainPanel = defineComponent({
     watch([card_order, card_sizes], save_layout, { deep: true });
 
     // ── Drag-to-reorder ─────────────────────────────────────────────
-    function start_drag(key) {
-      dragging_key.value = key;
+    function start_drag(unit_key) {
+      dragging_key.value = unit_key;
       document.body.style.userSelect = 'none';
       const on_up = () => {
         if (drag_over_key.value && drag_over_key.value !== dragging_key.value) {
-          const arr  = [...card_order.value];
-          const from = arr.indexOf(dragging_key.value);
-          const to   = arr.indexOf(drag_over_key.value);
-          if (from !== -1 && to !== -1) {
-            arr.splice(from, 1);
-            arr.splice(to, 0, dragging_key.value);
-            card_order.value = arr;
+          const units = compute_units(card_order.value);
+          const get_flat_keys = uk => {
+            const u = units.find(u => u.unit_key === uk);
+            return u ? (u.type === 'group' ? u.keys : [u.key]) : [];
+          };
+          const from_keys = get_flat_keys(dragging_key.value);
+          const to_keys   = get_flat_keys(drag_over_key.value);
+          if (from_keys.length && to_keys.length) {
+            const arr = card_order.value.filter(k => !from_keys.includes(k));
+            const to_idx = arr.indexOf(to_keys[0]);
+            if (to_idx !== -1) {
+              arr.splice(to_idx, 0, ...from_keys);
+              card_order.value = arr;
+            }
           }
         }
         dragging_key.value  = null;
@@ -584,36 +664,76 @@ const MainPanel = defineComponent({
 
       const { metrics, image_cards, downsampled } = props.dash;
       const is_live  = props.sel_run?.status === 'running';
-      // Map image card key → card data for O(1) lookup
       const img_map  = Object.fromEntries((image_cards || []).map(c => [c.key, c]));
 
-      const cards = card_order.value.map(key => {
+      function render_card(key, { width, label_override } = {}) {
         const is_metric = key in (metrics || {});
         const img_card  = img_map[key];
-        const label     = img_card?.label ?? key;
+        const label     = label_override ?? (img_card?.label ?? key);
         const sizes     = card_sizes.value[key] || default_size(key);
-
         return h(DashCard, {
           key,
           card_label:   label,
           is_metric,
-          is_dragging:  dragging_key.value  === key,
-          is_drag_over: drag_over_key.value === key,
-          width:        sizes.w,
+          is_dragging:  false,
+          is_drag_over: false,
+          width:        width !== undefined ? width : sizes.w,
           height:       sizes.h,
           downsampled:  is_metric && downsampled,
-          onDragStart:  () => start_drag(key),
-          onDragEnter:  () => on_drag_enter(key),
-          onResize:     dims => on_resize(key, dims),
+          onDragStart:  () => {},
+          onDragEnter:  () => {},
+          onResize:     dims => on_resize(key, width !== undefined ? { h: dims.h } : dims),
         }, {
           default: () => is_metric
             ? h(MetricChart, { metric_key: key, datasets: (metrics || {})[key] || [], is_live })
             : h(ImageSlider, { img_key: key, runs: img_card?.runs ?? [] }),
         });
+      }
+
+      const units = compute_units(card_order.value);
+      const rendered = units.map(unit => {
+        if (unit.type === 'single') {
+          const key   = unit.key;
+          const sizes = card_sizes.value[key] || default_size(key);
+          return h(DashCard, {
+            key,
+            card_label:   img_map[key]?.label ?? key,
+            is_metric:    key in (metrics || {}),
+            is_dragging:  dragging_key.value  === unit.unit_key,
+            is_drag_over: drag_over_key.value === unit.unit_key,
+            width:        sizes.w,
+            height:       sizes.h,
+            downsampled:  (key in (metrics || {})) && downsampled,
+            onDragStart:  () => start_drag(unit.unit_key),
+            onDragEnter:  () => on_drag_enter(unit.unit_key),
+            onResize:     dims => on_resize(key, dims),
+          }, {
+            default: () => key in (metrics || {})
+              ? h(MetricChart, { metric_key: key, datasets: (metrics || {})[key] || [], is_live })
+              : h(ImageSlider, { img_key: key, runs: img_map[key]?.runs ?? [] }),
+          });
+        }
+
+        // Group
+        const gk          = unit.unit_key;
+        const group_sizes = card_sizes.value[gk] || default_size(gk);
+        const children    = unit.keys.map(key =>
+          render_card(key, { width: null, label_override: key.slice(unit.prefix.length + 1) })
+        );
+        return h(MetricGroup, {
+          key:          gk,
+          prefix:       unit.prefix,
+          width:        group_sizes.w,
+          is_dragging:  dragging_key.value  === gk,
+          is_drag_over: drag_over_key.value === gk,
+          onDragStart:  () => start_drag(gk),
+          onDragEnter:  () => on_drag_enter(gk),
+          onResizeGroup: w => on_resize(gk, { w }),
+        }, { default: () => children });
       });
 
       return h('div', { class: 'main-panel' }, [
-        h('div', { class: 'cards-grid' }, cards),
+        h('div', { class: 'cards-grid' }, rendered),
       ]);
     };
   },

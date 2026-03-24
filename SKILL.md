@@ -152,6 +152,9 @@ Project view: one card per image key; `runs` has one entry per project run, with
 
 ### localStorage keys: `wandb_layout_run_<id>`, `wandb_layout_proj_<id>`, `wandb_last_sel`
 
+### Metric keys with `/` are grouped into a `MetricGroup` container at render time
+`compute_units(card_order)` partitions flat keys by first path segment: `train/loss` and `train/acc` become a group with `unit_key = 'group::train'`. `card_order` stays flat (individual keys) — groups are derived, never stored. Group widths are stored in `card_sizes['group::train'] = {w}`. Child cards inside a group receive `width: null` (flex fills them evenly). Drag operates on unit keys, not flat keys — `start_drag` moves all keys of the dragged unit.
+
 ---
 
 ## SDK
