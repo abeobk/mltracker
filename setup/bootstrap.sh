@@ -177,8 +177,11 @@ fi
 
 mkdir -p "$DATA_MOUNT/mltracker"
 mkdir -p "$DATA_MOUNT/backups"
+# Chown the mount point itself and all contents — critical on freshly formatted EBS
+# which is owned by root after mkfs+mount even if the parent dir was chowned before.
+chown "$REPO_USER:$REPO_USER" "$DATA_MOUNT"
 chown -R "$REPO_USER:$REPO_USER" "$DATA_MOUNT"
-info "Data volume ready at $DATA_MOUNT"
+info "Data volume ready at $DATA_MOUNT (owner: $REPO_USER)"
 
 # =============================================================================
 # 3. Python venv + dependencies
