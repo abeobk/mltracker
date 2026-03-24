@@ -315,6 +315,10 @@ info "Redis started ($REDIS_SERVICE)."
 # 10. Start services
 # =============================================================================
 info "Starting Nginx..."
+# Nginx runs as the nginx user and must be able to traverse into the repo owner's
+# home directory to serve frontend/ files. Home dirs are 700 by default — open
+# execute bit for others so Nginx can stat files inside.
+chmod o+x "/home/$REPO_USER"
 systemctl enable nginx
 systemctl restart nginx
 
