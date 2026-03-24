@@ -32,11 +32,13 @@ Usage:
 """
 from __future__ import annotations
 
+import atexit
 import base64
 import io
 import os
 import queue
 import secrets
+import sys
 import threading
 import time
 from typing import Any, Dict, List, Optional
@@ -44,6 +46,27 @@ from typing import Any, Dict, List, Optional
 import requests
 
 _DEFAULT_HOST = 'http://localhost:5000'
+
+# ---------------------------------------------------------------------------
+# Module-level crash / interrupt handling
+# ---------------------------------------------------------------------------
+# Tracks all active Run objects so the module-level excepthook can mark them
+# as crashed when an unhandled exception (including KeyboardInterrupt) occurs.
+_active_runs: set = set()
+_original_excepthook = sys.excepthook
+
+
+def _global_excepthook(exc_type, exc_val, exc_tb):
+    """Called for any unhandled exception before the interpreter shuts down.
+
+    Marks every active run as crashed so _auto_finish sends the right status.
+    """
+    for run in list(_active_runs):
+        run._crash_status = 'crashed'
+    _original_excepthook(exc_type, exc_val, exc_tb)
+
+
+sys.excepthook = _global_excepthook
 
 
 def _resolve_credentials(api_key: Optional[str], host: Optional[str]):
@@ -122,6 +145,12 @@ class Run:
         self._worker_error: Optional[Exception] = None
         self._worker = threading.Thread(target=self._post_worker, daemon=True)
         self._worker.start()
+
+        # Crash / interrupt recovery
+        self._finished     = False
+        self._crash_status = None        # set to 'crashed' by _global_excepthook
+        _active_runs.add(self)
+        atexit.register(self._auto_finish)
 
     # ------------------------------------------------------------------
     # Properties
@@ -302,9 +331,15 @@ class Run:
         """Flush all pending log data, wait for the background thread to finish,
         then mark the run as finished or crashed on the server.
 
-        Always call finish() at the end of a training script to ensure no
-        steps are lost.
+        Called explicitly at the end of a training script, OR automatically
+        by the atexit handler on Ctrl+C / crash (with status='crashed').
+        Always call finish() explicitly to get status='finished'.
         """
+        if self._finished:
+            return                      # guard against double-calls from atexit
+        self._finished = True
+        _active_runs.discard(self)
+
         # If there is uncommitted data in the buffer, force a final commit
         if self._buffer:
             self.log({})
@@ -318,6 +353,20 @@ class Run:
             raise self._worker_error
 
         self._post(f'/api/v1/runs/{self._run_id}/finish', {'status': status})
+
+    def _auto_finish(self) -> None:
+        """atexit handler: flush queue and mark run crashed if finish() was never called.
+
+        Runs automatically on Ctrl+C, unhandled exceptions, or any other exit
+        that bypasses an explicit run.finish() call.
+        """
+        if self._finished:
+            return                      # finish() was already called — nothing to do
+        status = self._crash_status or 'crashed'
+        try:
+            self.finish(status=status)
+        except Exception:
+            pass                        # best-effort — server may be unreachable
 
 
 # ---------------------------------------------------------------------------

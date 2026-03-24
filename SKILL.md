@@ -355,25 +355,20 @@ function startResize(e) {
 
 ## Workflow & Project Conventions
 
-### S-28 · Commit checklist — all three docs required
-Before every `git commit`, update in this order:
-1. `log.md` — append what changed and why (never delete past entries)
-2. `PROGRAM_update.md` — evolve the spec to match current implementation
-3. `SKILL.md` — add any new skill or gotcha learned
+### S-28 · Commit checklist — docs must stay current
+Before every `git commit`, update as needed:
+1. `PROGRAM.md` — evolve the spec to match the current implementation
+2. `SKILL.md` — add any new pattern or gotcha learned
 
-### S-29 · `PROGRAM_update.md` is the authoritative spec
-Supersedes `PROGRAM.md`. Must always be more complete, clearer, and more accurate.
+### S-29 · User decisions override original spec
+Record any deliberate deviation in `PROGRAM.md` so future sessions don't re-introduce removed features.
 
-### S-30 · User decisions override original spec
-Record any deliberate deviation in `PROGRAM_update.md` with a note so future sessions don't re-introduce removed features.
-
-### S-31 · File locations
-| File | Path |
-|------|------|
-| Authoritative spec | `PROGRAM_update.md` |
-| Skills / knowhow | `SKILL.md` |
-| Planning log | `log.md` |
-| Issues | `issue.md` |
+### S-30 · File locations
+| File | Purpose |
+|------|---------|
+| `PROGRAM.md` | Authoritative spec and architecture |
+| `PLAN.md` | Implementation, test, and deployment plan |
+| `SKILL.md` | Patterns, gotchas, and knowhow |
 
 ---
 
@@ -850,6 +845,91 @@ Single-step format: `{step, ts, loss: 0.3, images: {...}}`
 Batch format: `{steps: [{step, ts, ...}, {step, ts, ...}, ...]}`
 
 ---
+
+### S-57 · Draggable + resizable dashboard cards with persistent layout
+
+Each metric/image card is wrapped in a `DashCard` that supports drag-reorder and corner-resize.
+
+**Drag reorder:**
+```js
+function start_drag(key) {
+  dragging_key.value = key;
+  document.body.style.userSelect = 'none';
+  const on_up = () => {
+    if (drag_over_key.value && drag_over_key.value !== dragging_key.value) {
+      const arr = [...card_order.value];
+      const from = arr.indexOf(dragging_key.value);
+      const to   = arr.indexOf(drag_over_key.value);
+      arr.splice(from, 1); arr.splice(to, 0, dragging_key.value);
+      card_order.value = arr;
+    }
+    dragging_key.value = drag_over_key.value = null;
+    document.body.style.userSelect = '';
+    window.removeEventListener('mouseup', on_up);
+  };
+  window.addEventListener('mouseup', on_up);
+}
+```
+
+**Corner resize (inside DashCard):**
+```js
+const on_move = ev => emit('resize', {
+  w: Math.max(280, start_w + ev.clientX - start_x),
+  h: Math.max(150, start_h + ev.clientY - start_y),
+});
+```
+
+**localStorage persistence:**
+```js
+// Key by selection — run takes priority over project
+function lstore_key() {
+  if (sel_run?.id)     return `wandb_layout_run_${sel_run.id}`;
+  if (sel_project?.id) return `wandb_layout_proj_${sel_project.id}`;
+  return null;
+}
+
+function save_layout() {
+  const k = lstore_key();
+  if (!k || !card_order.value.length) return;  // guard against empty transitional state
+  localStorage.setItem(k, JSON.stringify({ order: card_order.value, sizes: card_sizes.value }));
+}
+```
+
+**Watcher pitfall — always use a string key, not an array:**
+```js
+// WRONG: new array every render, always triggers
+watch(() => [proj?.id, run?.id], reset);
+
+// CORRECT: string comparison is by value
+watch(() => `${proj?.id ?? ''}_${run?.id ?? ''}`, reset);
+```
+
+### S-58 · Multi-run image cards — `image_cards` format
+
+`ImageSlider` takes `runs: [{label, images: [{step, url}]}]` — not a flat `images` array.
+
+**Project view:** one card per image key; `runs` has one entry per run (empty `images` array if that run has no data for this key — shows "No images" placeholder).
+
+**Run view:** same format but `runs` is a single-element array.
+
+**Merged step navigation:** `[...new Set(runs.flatMap(r => r.images.map(x => x.step)))].sort((a,b)=>a-b)`
+
+**CSS grid for multi-run:**
+```css
+.img-grid-multi {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 6px;
+  overflow-y: auto;
+  align-content: start;
+}
+/* Single-run fills the full card body */
+.img-grid-single { flex: 1; min-height: 0; display: flex; }
+.img-grid-single .img-run-cell { flex: 1; border: none; background: none; }
+.img-grid-single .img-run-cell img { flex: 1; height: 100%; aspect-ratio: unset; }
+```
+
+Each run cell: framed with `var(--panel2)` background + `var(--border)` border; run name header on top with `border-bottom`.
 
 ### S-41 · Always clear auto-refresh interval before setting a new one; add error backoff
 Store the interval ID in a variable. Call `clearInterval` every time the selection changes

@@ -1,5 +1,4 @@
-import { createApp, ref, computed, watch, onMounted, onUnmounted, nextTick, defineComponent, h } from 'vue';
-// Chart.js loaded as a plain <script> tag — access via global
+import { createApp, ref, watch, onMounted, onUnmounted, nextTick, defineComponent, h } from 'vue';
 const Chart = window.Chart;
 
 // ---------------------------------------------------------------------------
@@ -61,25 +60,19 @@ const LeftPanel = defineComponent({
   props: ['projects', 'sel_project_id', 'sel_run_id'],
   emits: ['select-project', 'select-run', 'delete-project', 'delete-run'],
   setup(props, { emit }) {
-    const collapsed = ref({});   // project_id → bool
+    const collapsed = ref({});
 
     function toggle_collapse(proj_id, e) {
       e.stopPropagation();
       collapsed.value[proj_id] = !collapsed.value[proj_id];
     }
-
     function confirm_delete_project(proj, e) {
       e.stopPropagation();
-      if (confirm(`Delete project "${proj.name}" and all its runs?`)) {
-        emit('delete-project', proj.id);
-      }
+      if (confirm(`Delete project "${proj.name}" and all its runs?`)) emit('delete-project', proj.id);
     }
-
     function confirm_delete_run(run, e) {
       e.stopPropagation();
-      if (confirm(`Delete run "${run.name}"?`)) {
-        emit('delete-run', run.id);
-      }
+      if (confirm(`Delete run "${run.name}"?`)) emit('delete-run', run.id);
     }
 
     return () => h('div', { class: 'left-panel' }, [
@@ -88,11 +81,9 @@ const LeftPanel = defineComponent({
         h('i', { class: 'fa-solid fa-layer-group', style: 'opacity:0.4' }),
       ]),
       props.projects.length === 0
-        ? h('div', { style: 'padding:16px 10px;color:var(--text-dim);font-size:12px' },
-            'No projects yet.')
+        ? h('div', { style: 'padding:16px 10px;color:var(--text-dim);font-size:12px' }, 'No projects yet.')
         : props.projects.map(proj =>
             h('div', { key: proj.id }, [
-              // Project row
               h('div', {
                 class: ['tree-item', 'project-row',
                         props.sel_project_id === proj.id && !props.sel_run_id ? 'selected' : ''],
@@ -107,12 +98,10 @@ const LeftPanel = defineComponent({
                 h('i', { class: 'fa-solid fa-folder folder-icon' }),
                 h('span', { class: 'item-name' }, proj.name),
                 h('button', {
-                  class: 'icon-btn',
-                  title: 'Delete project',
+                  class: 'icon-btn', title: 'Delete project',
                   onClick: e => confirm_delete_project(proj, e),
                 }, h('i', { class: 'fa-solid fa-trash' })),
               ]),
-              // Run rows
               !collapsed.value[proj.id] && (proj.runs || []).map(run =>
                 h('div', {
                   key: run.id,
@@ -123,8 +112,7 @@ const LeftPanel = defineComponent({
                   h('span', { class: ['status-dot', run.status] }),
                   h('span', { class: 'item-name' }, run.name),
                   h('button', {
-                    class: 'icon-btn',
-                    title: 'Delete run',
+                    class: 'icon-btn', title: 'Delete run',
                     onClick: e => confirm_delete_run(run, e),
                   }, h('i', { class: 'fa-solid fa-trash' })),
                 ])
@@ -136,22 +124,21 @@ const LeftPanel = defineComponent({
 });
 
 // ---------------------------------------------------------------------------
-// MetricChart
+// MetricChart  (rendered inside DashCard — no own outer wrapper)
 // ---------------------------------------------------------------------------
 const MetricChart = defineComponent({
-  props: ['metric_key', 'datasets', 'is_live', 'downsampled'],
+  props: ['metric_key', 'datasets', 'is_live'],
   setup(props) {
     let _chart = null;
+    let _ro    = null;
     const canvas_ref = ref(null);
 
     function build_chart() {
       if (!canvas_ref.value) return;
       if (_chart) { _chart.destroy(); _chart = null; }
-
-      const style = getComputedStyle(document.documentElement);
+      const style       = getComputedStyle(document.documentElement);
       const grid_color  = style.getPropertyValue('--border').trim();
       const label_color = style.getPropertyValue('--text-dim').trim();
-
       _chart = new Chart(canvas_ref.value, {
         type: 'line',
         data: {
@@ -159,9 +146,9 @@ const MetricChart = defineComponent({
             label: ds.label,
             data: ds.points.map(p => ({ x: p.step, y: p.value })),
             borderColor: run_color(idx),
-            backgroundColor: 'transparent',
+            backgroundColor: run_color(idx),
             borderWidth: 1.5,
-            pointRadius: props.datasets[0].points.length > 200 ? 0 : 2,
+            pointRadius: (props.datasets[0]?.points.length ?? 0) > 200 ? 0 : 2,
             tension: 0.1,
           })),
         },
@@ -185,81 +172,286 @@ const MetricChart = defineComponent({
           plugins: {
             legend: {
               display: props.datasets.length > 1,
-              labels: { color: label_color, boxWidth: 12, font: { size: 11 } },
+              labels: { color: label_color, usePointStyle: true, pointStyle: 'circle', boxWidth: 6, boxHeight: 6, font: { size: 11 } },
             },
           },
         },
       });
     }
 
-    watch(() => [props.datasets, props.metric_key], () => {
+    watch(() => [props.datasets, props.metric_key], () => { nextTick(build_chart); }, { deep: true });
+
+    onMounted(() => {
       nextTick(build_chart);
-    }, { deep: true });
+      if (canvas_ref.value) {
+        _ro = new ResizeObserver(() => { if (_chart) _chart.resize(); });
+        _ro.observe(canvas_ref.value.parentElement);
+      }
+    });
+    onUnmounted(() => {
+      _ro?.disconnect();
+      if (_chart) { _chart.destroy(); _chart = null; }
+    });
 
-    onMounted(() => nextTick(build_chart));
-    onUnmounted(() => { if (_chart) { _chart.destroy(); _chart = null; } });
-
-    return () => h('div', { class: 'chart-card' }, [
-      h('div', { class: 'card-title' }, [
-        props.metric_key,
-        props.downsampled
-          ? h('span', { class: 'downsampled-badge' }, 'downsampled')
-          : null,
-      ]),
-      h('div', { class: 'chart-canvas-wrap' }, [
-        h('canvas', { ref: canvas_ref }),
-      ]),
+    return () => h('div', { class: 'chart-canvas-wrap' }, [
+      h('canvas', { ref: canvas_ref }),
     ]);
   },
 });
 
 // ---------------------------------------------------------------------------
-// ImageSlider
+// ImageSlider  (rendered inside DashCard — no own outer wrapper)
+// props.runs: [{label, images: [{step, url}]}]
+// One card shows all runs at the same step — mirrors multi-run metric charts.
 // ---------------------------------------------------------------------------
 const ImageSlider = defineComponent({
-  props: ['img_key', 'images'],   // images = [{step, url}]
+  props: ['img_key', 'runs'],
   setup(props) {
     const _idx = ref(0);
-    const current = computed(() => props.images[_idx.value] || null);
+    // Reset only when the key changes (new selection), not on data refresh
+    watch(() => props.img_key, () => { _idx.value = 0; });
 
-    watch(() => props.images, () => { _idx.value = 0; });
+    return () => {
+      // Sorted union of all steps across every run
+      const all_steps = [...new Set(
+        (props.runs || []).flatMap(r => r.images.map(img => img.step))
+      )].sort((a, b) => a - b);
 
-    return () => h('div', { class: 'img-slider' }, [
-      h('div', { class: 'slider-title' }, props.img_key),
-      h('div', { class: 'slider-controls' }, [
-        h('button', {
-          disabled: _idx.value === 0,
-          onClick: () => { if (_idx.value > 0) _idx.value--; },
-        }, h('i', { class: 'fa-solid fa-backward-step' })),
-        h('span', { class: 'step-label' },
-          current.value ? `step ${current.value.step}` : '—'),
-        h('button', {
-          disabled: _idx.value >= props.images.length - 1,
-          onClick: () => { if (_idx.value < props.images.length - 1) _idx.value++; },
-        }, h('i', { class: 'fa-solid fa-forward-step' })),
-        h('span', { class: 'step-label', style: 'margin-left:4px;opacity:0.6' },
-          `${_idx.value + 1} / ${props.images.length}`),
+      const total   = all_steps.length;
+      const clamped = Math.max(0, Math.min(_idx.value, total - 1));
+      const step    = all_steps[clamped];
+      const is_multi = (props.runs || []).length > 1;
+
+      const run_cells = (props.runs || []).map(r => {
+        const img = step !== undefined ? r.images.find(x => x.step === step) : null;
+        return h('div', { class: 'img-run-cell', key: r.label }, [
+          is_multi
+            ? h('div', { class: 'run-img-label', title: r.label }, r.label)
+            : null,
+          img
+            ? h('img', { src: img.url, alt: `${r.label} step ${step}` })
+            : h('div', { class: 'no-images' }, [
+                h('i', { class: 'fa-solid fa-image' }),
+                r.images.length ? ' No image at this step' : ' No images',
+              ]),
+        ]);
+      });
+
+      return h('div', { class: 'img-slider-body' }, [
+        h('div', { class: 'slider-controls' }, [
+          h('button', {
+            disabled: clamped === 0,
+            onClick: () => { if (_idx.value > 0) _idx.value--; },
+          }, h('i', { class: 'fa-solid fa-backward-step' })),
+          h('span', { class: 'step-label' }, step !== undefined ? `step ${step}` : '—'),
+          h('button', {
+            disabled: clamped >= total - 1,
+            onClick: () => { if (_idx.value < total - 1) _idx.value++; },
+          }, h('i', { class: 'fa-solid fa-forward-step' })),
+          total > 0
+            ? h('span', { class: 'step-label', style: 'margin-left:4px;opacity:0.6' }, `${clamped + 1} / ${total}`)
+            : null,
+        ]),
+        h('div', { class: is_multi ? 'img-grid-multi' : 'img-grid-single' }, run_cells),
+      ]);
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// DashCard  — draggable + resizable wrapper
+// ---------------------------------------------------------------------------
+const DashCard = defineComponent({
+  props: ['card_label', 'is_metric', 'is_dragging', 'is_drag_over', 'width', 'height', 'downsampled'],
+  emits: ['drag-start', 'drag-enter', 'resize'],
+  setup(props, { emit, slots }) {
+    function on_resize_mousedown(e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const start_x = e.clientX, start_y = e.clientY;
+      const start_w = props.width,  start_h = props.height;
+      document.body.style.userSelect = 'none';
+      const on_move = ev => {
+        emit('resize', {
+          w: Math.max(280, start_w + ev.clientX - start_x),
+          h: Math.max(150, start_h + ev.clientY - start_y),
+        });
+      };
+      const on_up = () => {
+        document.body.style.userSelect = '';
+        window.removeEventListener('mousemove', on_move);
+        window.removeEventListener('mouseup', on_up);
+      };
+      window.addEventListener('mousemove', on_move);
+      window.addEventListener('mouseup', on_up);
+    }
+
+    return () => h('div', {
+      class: [
+        'dashboard-card',
+        props.is_dragging  ? 'is-dragging'  : '',
+        props.is_drag_over && !props.is_dragging ? 'is-drag-over' : '',
+      ],
+      style: { width: props.width + 'px' },
+      onMouseenter: () => emit('drag-enter'),
+    }, [
+      h('div', {
+        class: 'card-drag-bar',
+        onMousedown: e => { if (e.button === 0) emit('drag-start'); },
+      }, [
+        h('i', { class: 'fa-solid fa-grip-vertical card-grip' }),
+        h('span', { class: 'card-key-label', title: props.card_label }, props.card_label),
+        props.is_metric && props.downsampled
+          ? h('span', { class: 'downsampled-badge' }, 'downsampled') : null,
+        !props.is_metric
+          ? h('i', { class: 'fa-solid fa-image card-type-icon', title: 'Image' }) : null,
       ]),
-      current.value
-        ? h('img', { src: current.value.url, alt: `${props.img_key} step ${current.value.step}` })
-        : h('div', { style: 'color:var(--text-dim);font-size:12px' }, 'No images'),
+      h('div', { class: 'card-body', style: { height: props.height + 'px' } },
+        slots.default?.()
+      ),
+      h('div', { class: 'card-resize-handle', onMousedown: on_resize_mousedown }),
     ]);
   },
 });
 
 // ---------------------------------------------------------------------------
-// MainPanel
+// MainPanel  — card grid with persistent layout (localStorage)
 // ---------------------------------------------------------------------------
+const DEFAULT_CHART_H = 220;
+const DEFAULT_IMAGE_H = 280;
+const DEFAULT_W       = 420;
+
 const MainPanel = defineComponent({
   props: ['dash', 'is_loading', 'sel_project', 'sel_run'],
   setup(props) {
+    const card_order    = ref([]);
+    const card_sizes    = ref({});
+    const dragging_key  = ref(null);
+    const drag_over_key = ref(null);
+
+    // ── Layout persistence ──────────────────────────────────────────
+    function lstore_key() {
+      if (props.sel_run?.id)     return `wandb_layout_run_${props.sel_run.id}`;
+      if (props.sel_project?.id) return `wandb_layout_proj_${props.sel_project.id}`;
+      return null;
+    }
+
+    function save_layout() {
+      const k = lstore_key();
+      if (!k || !card_order.value.length) return;   // skip empty transitional state
+      localStorage.setItem(k, JSON.stringify({ order: card_order.value, sizes: card_sizes.value }));
+    }
+
+    function load_layout(available_keys) {
+      const k = lstore_key();
+      if (!k) return null;
+      try {
+        const saved = JSON.parse(localStorage.getItem(k));
+        if (!saved?.order) return null;
+        // Restore saved order; add any new keys at the end
+        const valid_order = saved.order.filter(key => available_keys.includes(key));
+        for (const key of available_keys) {
+          if (!valid_order.includes(key)) valid_order.push(key);
+        }
+        return { order: valid_order, sizes: saved.sizes || {} };
+      } catch { return null; }
+    }
+
+    function default_size(key) {
+      const is_metric = key in (props.dash.metrics || {});
+      return { w: DEFAULT_W, h: is_metric ? DEFAULT_CHART_H : DEFAULT_IMAGE_H };
+    }
+
+    // ── Watchers ────────────────────────────────────────────────────
+
+    // Reset ONLY on actual selection change (string key avoids array-reference trap)
+    watch(
+      () => `${props.sel_project?.id ?? ''}_${props.sel_run?.id ?? ''}`,
+      () => { card_order.value = []; card_sizes.value = {}; }
+    );
+
+    // Sync card_order when available keys change (add new / remove gone / restore saved)
+    watch(
+      () => {
+        const m = Object.keys(props.dash.metrics || {});
+        const i = (props.dash.image_cards || []).map(c => c.key);
+        return [...m, ...i];
+      },
+      new_keys => {
+        if (!new_keys.length) return;
+
+        if (card_order.value.length === 0) {
+          // First data for this selection — try to restore saved layout
+          const saved = load_layout(new_keys);
+          if (saved) {
+            card_order.value = saved.order;
+            const merged = {};
+            for (const key of saved.order) {
+              merged[key] = saved.sizes[key] || default_size(key);
+            }
+            card_sizes.value = merged;
+            return;
+          }
+          // No saved layout — build defaults
+          for (const key of new_keys) {
+            card_order.value.push(key);
+            card_sizes.value[key] = default_size(key);
+          }
+          return;
+        }
+
+        // Subsequent updates (refresh): add new keys, remove gone, preserve order/sizes
+        for (const key of new_keys) {
+          if (!card_order.value.includes(key)) {
+            card_order.value.push(key);
+            card_sizes.value[key] = default_size(key);
+          }
+        }
+        card_order.value = card_order.value.filter(k => new_keys.includes(k));
+      },
+      { immediate: true }
+    );
+
+    // Persist layout whenever order or sizes change
+    watch([card_order, card_sizes], save_layout, { deep: true });
+
+    // ── Drag-to-reorder ─────────────────────────────────────────────
+    function start_drag(key) {
+      dragging_key.value = key;
+      document.body.style.userSelect = 'none';
+      const on_up = () => {
+        if (drag_over_key.value && drag_over_key.value !== dragging_key.value) {
+          const arr  = [...card_order.value];
+          const from = arr.indexOf(dragging_key.value);
+          const to   = arr.indexOf(drag_over_key.value);
+          if (from !== -1 && to !== -1) {
+            arr.splice(from, 1);
+            arr.splice(to, 0, dragging_key.value);
+            card_order.value = arr;
+          }
+        }
+        dragging_key.value  = null;
+        drag_over_key.value = null;
+        document.body.style.userSelect = '';
+        window.removeEventListener('mouseup', on_up);
+      };
+      window.addEventListener('mouseup', on_up);
+    }
+
+    function on_drag_enter(key) {
+      if (dragging_key.value) drag_over_key.value = key;
+    }
+
+    function on_resize(key, dims) {
+      card_sizes.value = { ...card_sizes.value, [key]: dims };
+    }
+
+    // ── Render ──────────────────────────────────────────────────────
     return () => {
       if (props.is_loading) {
         return h('div', { class: 'main-panel' }, [
-          h('div', { class: 'loading-row' }, [
-            h('i', { class: 'fa-solid fa-spinner fa-spin' }),
-            'Loading…',
-          ]),
+          h('div', { class: 'loading-row' }, [h('i', { class: 'fa-solid fa-spinner fa-spin' }), 'Loading…']),
         ]);
       }
 
@@ -272,39 +464,7 @@ const MainPanel = defineComponent({
         ]);
       }
 
-      const { metrics, image_keys, images, downsampled } = props.dash;
-      const is_live = props.sel_run?.status === 'running';
-      const children = [];
-
-      // Metric charts
-      const metric_keys = Object.keys(metrics || {});
-      if (metric_keys.length) {
-        children.push(h('div', { class: 'section-heading' }, 'Metrics'));
-        for (const key of metric_keys) {
-          const data = metrics[key];   // [{run_label, points:[{step,value}]}]
-          children.push(h(MetricChart, {
-            key,
-            metric_key: key,
-            datasets: data,
-            is_live,
-            downsampled: downsampled,
-          }));
-        }
-      }
-
-      // Image sliders (run view only)
-      if (props.sel_run && (image_keys || []).length) {
-        children.push(h('div', { class: 'section-heading', style: 'margin-top:8px' }, 'Images'));
-        for (const key of image_keys) {
-          children.push(h(ImageSlider, {
-            key,
-            img_key: key,
-            images: (images || {})[key] || [],
-          }));
-        }
-      }
-
-      if (!children.length) {
+      if (!card_order.value.length) {
         return h('div', { class: 'main-panel' }, [
           h('div', { class: 'empty-state' }, [
             h('i', { class: 'fa-solid fa-inbox empty-icon' }),
@@ -313,7 +473,39 @@ const MainPanel = defineComponent({
         ]);
       }
 
-      return h('div', { class: 'main-panel' }, children);
+      const { metrics, image_cards, downsampled } = props.dash;
+      const is_live  = props.sel_run?.status === 'running';
+      // Map image card key → card data for O(1) lookup
+      const img_map  = Object.fromEntries((image_cards || []).map(c => [c.key, c]));
+
+      const cards = card_order.value.map(key => {
+        const is_metric = key in (metrics || {});
+        const img_card  = img_map[key];
+        const label     = img_card?.label ?? key;
+        const sizes     = card_sizes.value[key] || default_size(key);
+
+        return h(DashCard, {
+          key,
+          card_label:   label,
+          is_metric,
+          is_dragging:  dragging_key.value  === key,
+          is_drag_over: drag_over_key.value === key,
+          width:        sizes.w,
+          height:       sizes.h,
+          downsampled:  is_metric && downsampled,
+          onDragStart:  () => start_drag(key),
+          onDragEnter:  () => on_drag_enter(key),
+          onResize:     dims => on_resize(key, dims),
+        }, {
+          default: () => is_metric
+            ? h(MetricChart, { metric_key: key, datasets: (metrics || {})[key] || [], is_live })
+            : h(ImageSlider, { img_key: key, runs: img_card?.runs ?? [] }),
+        });
+      });
+
+      return h('div', { class: 'main-panel' }, [
+        h('div', { class: 'cards-grid' }, cards),
+      ]);
     };
   },
 });
@@ -342,7 +534,6 @@ const StatusBar = defineComponent({
       const right = props.sel_project && !props.sel_run
         ? `${(props.sel_project.runs || []).length} run${(props.sel_project.runs || []).length !== 1 ? 's' : ''}`
         : null;
-
       return h('div', { class: 'statusbar' }, [
         ...segs,
         h('div', { class: 'spacer' }),
@@ -357,47 +548,63 @@ const StatusBar = defineComponent({
 // ---------------------------------------------------------------------------
 const App = defineComponent({
   setup() {
-    const user          = ref(null);
-    const projects      = ref([]);
-    const sel_project   = ref(null);
-    const sel_run       = ref(null);
-    const is_loading    = ref(false);
-    const dash          = ref({ metrics: {}, image_keys: [], images: {}, downsampled: false });
+    const user        = ref(null);
+    const projects    = ref([]);
+    const sel_project = ref(null);
+    const sel_run     = ref(null);
+    const is_loading  = ref(false);
+    const dash        = ref({ metrics: {}, image_cards: [], downsampled: false });
 
-    // Auto-refresh state (setTimeout-based with backoff)
     let _refresh_timer  = null;
     let _refresh_delay  = 5000;
     let _fail_count     = 0;
     let _refresh_run_id = null;
 
-    // -----------------------------------------------------------------------
-    // Auth / init
-    // -----------------------------------------------------------------------
     async function init() {
       const me = await api('/auth/me');
       if (!me.logged_in) { window.location = '/auth/login'; return; }
       user.value = me;
       await load_projects();
+      await restore_last_selection();
     }
 
     async function load_projects() {
       const list = await api('/api/v1/projects');
-      // Load runs for each project in parallel
       await Promise.all(list.map(async proj => {
         proj.runs = await api(`/api/v1/projects/${proj.id}/runs`).catch(() => []);
       }));
       projects.value = list;
     }
 
-    // -----------------------------------------------------------------------
-    // Selection
-    // -----------------------------------------------------------------------
+    function save_last_selection() {
+      const val = sel_run.value
+        ? { proj_id: sel_project.value?.id, run_id: sel_run.value.id }
+        : sel_project.value
+          ? { proj_id: sel_project.value.id, run_id: null }
+          : null;
+      if (val) localStorage.setItem('wandb_last_sel', JSON.stringify(val));
+      else localStorage.removeItem('wandb_last_sel');
+    }
+
+    async function restore_last_selection() {
+      try {
+        const saved = JSON.parse(localStorage.getItem('wandb_last_sel'));
+        if (!saved?.proj_id) return;
+        const proj = projects.value.find(p => p.id === saved.proj_id);
+        if (!proj) return;
+        if (saved.run_id) {
+          const run = (proj.runs || []).find(r => r.id === saved.run_id);
+          if (run) { await _do_select_run(proj, run); return; }
+        }
+        await _do_select_project(proj);
+      } catch { /* ignore */ }
+    }
+
     let _select_timer = null;
     function select_project(proj) {
       clearTimeout(_select_timer);
       _select_timer = setTimeout(() => _do_select_project(proj), 150);
     }
-
     function select_run(proj, run) {
       clearTimeout(_select_timer);
       _select_timer = setTimeout(() => _do_select_run(proj, run), 150);
@@ -407,61 +614,87 @@ const App = defineComponent({
       stop_refresh();
       sel_run.value     = null;
       sel_project.value = proj;
+      save_last_selection();
       is_loading.value  = true;
-      try {
-        await load_project_dash(proj);
-      } finally {
-        is_loading.value = false;
-      }
+      try { await load_project_dash(proj); } finally { is_loading.value = false; }
     }
 
     async function _do_select_run(proj, run) {
       stop_refresh();
       sel_project.value = proj;
       sel_run.value     = run;
+      save_last_selection();
       is_loading.value  = true;
-      try {
-        await load_run_dash(run);
-      } finally {
-        is_loading.value = false;
-      }
+      try { await load_run_dash(run); } finally { is_loading.value = false; }
       if (run.status === 'running') start_refresh(run.id);
     }
 
-    // -----------------------------------------------------------------------
-    // Dashboard loaders
-    // -----------------------------------------------------------------------
+    // ── Dashboard loaders ───────────────────────────────────────────
+
     async function load_project_dash(proj) {
       const runs = proj.runs || [];
-      if (!runs.length) { dash.value = { metrics: {}, image_keys: [], images: {}, downsampled: false }; return; }
+      if (!runs.length) {
+        dash.value = { metrics: {}, image_cards: [], downsampled: false };
+        return;
+      }
 
-      // Collect union of all metric keys across runs
-      const key_sets = await Promise.all(
-        runs.map(r => api(`/api/v1/runs/${r.id}/metric-keys`).catch(() => []))
-      );
-      const all_keys = [...new Set(key_sets.flat())];
+      // Fetch metric keys and image keys for every run in parallel
+      const [key_sets, img_key_sets] = await Promise.all([
+        Promise.all(runs.map(r => api(`/api/v1/runs/${r.id}/metric-keys`).catch(() => []))),
+        Promise.all(runs.map(r => api(`/api/v1/runs/${r.id}/image-keys`).catch(() => []))),
+      ]);
 
-      if (!all_keys.length) { dash.value = { metrics: {}, image_keys: [], images: {}, downsampled: false }; return; }
+      const all_metric_keys = [...new Set(key_sets.flat())];
+      const all_img_keys    = [...new Set(img_key_sets.flat())];
 
-      // Fetch metrics for each run (only the union of keys)
-      const metrics_by_run = await Promise.all(
-        runs.map(r => api(`/api/v1/runs/${r.id}/metrics?keys=${all_keys.join(',')}`).catch(() => ({ metrics: {}, downsampled: false })))
-      );
+      // Fetch metrics and per-run images in parallel
+      const [metrics_by_run, images_by_run] = await Promise.all([
+        all_metric_keys.length
+          ? Promise.all(runs.map(r =>
+              api(`/api/v1/runs/${r.id}/metrics?keys=${all_metric_keys.join(',')}`).catch(() => ({ metrics: {}, downsampled: false }))
+            ))
+          : Promise.resolve(runs.map(() => ({ metrics: {}, downsampled: false }))),
 
-      // Build {key: [{label, points}]} — one dataset per run
-      const grouped = {};
+        // For each run, fetch images for every image key it has
+        Promise.all(runs.map(async (run, ri) => {
+          const run_img_keys = img_key_sets[ri];
+          if (!run_img_keys.length) return {};
+          const result = {};
+          await Promise.all(run_img_keys.map(async key => {
+            const resp = await api(`/api/v1/runs/${run.id}/images?key=${encodeURIComponent(key)}`).catch(() => ({ images: [] }));
+            result[key] = resp.images || [];
+          }));
+          return result;
+        })),
+      ]);
+
+      // Build metric grouped series
+      const metrics = {};
       let any_downsampled = false;
-      for (const key of all_keys) {
-        grouped[key] = [];
+      for (const key of all_metric_keys) {
+        metrics[key] = [];
         metrics_by_run.forEach((resp, idx) => {
           if (resp.downsampled) any_downsampled = true;
           const pts = (resp.metrics || {})[key] || [];
-          if (pts.length) grouped[key].push({ label: runs[idx].name, points: pts });
+          if (pts.length) metrics[key].push({ label: runs[idx].name, points: pts });
         });
-        if (!grouped[key].length) delete grouped[key];
+        if (!metrics[key].length) delete metrics[key];
       }
 
-      dash.value = { metrics: grouped, image_keys: [], images: {}, downsampled: any_downsampled };
+      // Build image_cards: one card per img_key, runs array contains all runs
+      const image_cards = [];
+      for (const img_key of all_img_keys) {
+        image_cards.push({
+          key:   `img::${img_key}`,
+          label: img_key,
+          runs:  runs.map((run, ri) => ({
+            label:  run.name,
+            images: (images_by_run[ri] || {})[img_key] || [],
+          })),
+        });
+      }
+
+      dash.value = { metrics, image_cards, downsampled: any_downsampled };
     }
 
     async function load_run_dash(run) {
@@ -477,88 +710,70 @@ const App = defineComponent({
         ).catch(() => ({ metrics: {}, downsampled: false }));
       }
 
-      // Wrap each key's data as a single-dataset array for MetricChart
-      const grouped = {};
+      const metrics = {};
       for (const [key, pts] of Object.entries(metrics_resp.metrics || {})) {
-        grouped[key] = [{ label: run.name, points: pts }];
+        metrics[key] = [{ label: run.name, points: pts }];
       }
 
-      // Fetch images for each image key
-      const images = {};
-      await Promise.all(
-        img_keys_resp.map(async key => {
+      const image_cards = [];
+      if (img_keys_resp.length) {
+        await Promise.all(img_keys_resp.map(async key => {
           const resp = await api(`/api/v1/runs/${run.id}/images?key=${encodeURIComponent(key)}`).catch(() => ({ images: [] }));
-          images[key] = resp.images || [];
-        })
-      );
+          image_cards.push({ key, label: key, runs: [{ label: run.name, images: resp.images || [] }] });
+        }));
+        // Restore original key order
+        image_cards.sort((a, b) => img_keys_resp.indexOf(a.key) - img_keys_resp.indexOf(b.key));
+      }
 
-      dash.value = {
-        metrics: grouped,
-        image_keys: img_keys_resp,
-        images,
-        downsampled: metrics_resp.downsampled,
-      };
+      dash.value = { metrics, image_cards, downsampled: metrics_resp.downsampled };
     }
 
-    // -----------------------------------------------------------------------
-    // Auto-refresh (setTimeout + backoff)
-    // -----------------------------------------------------------------------
+    // ── Auto-refresh ────────────────────────────────────────────────
     function start_refresh(run_id) {
       _refresh_run_id = run_id;
       _refresh_delay  = 5000;
       _fail_count     = 0;
       schedule_refresh();
     }
-
     function schedule_refresh() {
       _refresh_timer = setTimeout(do_refresh, _refresh_delay);
     }
-
     async function do_refresh() {
       if (!_refresh_run_id || sel_run.value?.id !== _refresh_run_id) return;
       try {
-        // Re-fetch run status first
         const run_data = await api(`/api/v1/runs/${_refresh_run_id}`);
-        // Update run in tree
         const proj = projects.value.find(p => p.id === sel_project.value?.id);
         if (proj) {
           const idx = proj.runs.findIndex(r => r.id === _refresh_run_id);
           if (idx !== -1) proj.runs[idx] = { ...proj.runs[idx], ...run_data };
         }
         sel_run.value = { ...sel_run.value, ...run_data };
-
         await load_run_dash(sel_run.value);
-
         _fail_count    = 0;
         _refresh_delay = 5000;
-
         if (sel_run.value?.status === 'running') schedule_refresh();
-        else stop_refresh();   // run finished while watching
+        else stop_refresh();
       } catch (_) {
         _fail_count++;
         _refresh_delay = Math.min(60000, 5000 * Math.pow(2, _fail_count));
         schedule_refresh();
       }
     }
-
     function stop_refresh() {
       clearTimeout(_refresh_timer);
       _refresh_timer  = null;
       _refresh_run_id = null;
     }
-
     onUnmounted(stop_refresh);
 
-    // -----------------------------------------------------------------------
-    // Delete handlers
-    // -----------------------------------------------------------------------
+    // ── Delete handlers ─────────────────────────────────────────────
     async function delete_project(proj_id) {
       await api(`/api/v1/projects/${proj_id}`, { method: 'DELETE' });
       if (sel_project.value?.id === proj_id) {
         stop_refresh();
         sel_project.value = null;
         sel_run.value     = null;
-        dash.value = { metrics: {}, image_keys: [], images: {}, downsampled: false };
+        dash.value = { metrics: {}, image_cards: [], downsampled: false };
       }
       await load_projects();
     }
@@ -570,25 +785,14 @@ const App = defineComponent({
         sel_run.value = null;
         if (sel_project.value) await _do_select_project(sel_project.value);
       }
-      // Refresh runs list for the containing project
       await load_projects();
     }
 
-    // -----------------------------------------------------------------------
-    // Theme toggle
-    // -----------------------------------------------------------------------
-    function toggle_theme() {
-      document.body.classList.toggle('light');
-    }
+    function toggle_theme() { document.body.classList.toggle('light'); }
 
-    // -----------------------------------------------------------------------
-    // Drag-resize left panel
-    // -----------------------------------------------------------------------
-    function start_resize(e) {
+    function start_panel_resize(e) {
       const start_x = e.clientX;
-      const start_w = parseInt(
-        getComputedStyle(document.documentElement).getPropertyValue('--left-w')
-      );
+      const start_w = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--left-w'));
       const move = ev => {
         const w = Math.max(160, Math.min(480, start_w + ev.clientX - start_x));
         document.documentElement.style.setProperty('--left-w', `${w}px`);
@@ -603,38 +807,32 @@ const App = defineComponent({
 
     onMounted(init);
 
-    // -----------------------------------------------------------------------
-    // Render
-    // -----------------------------------------------------------------------
     return () => h('div', { id: 'app-inner', style: 'display:contents' }, [
       h(TopBar, {
         user: user.value,
         onToggleTheme: toggle_theme,
         onLogout: () => { window.location = '/auth/logout'; },
-        onKeyCopied: () => { /* could show a toast */ },
+        onKeyCopied: () => {},
       }),
       h(LeftPanel, {
         projects: projects.value,
         sel_project_id: sel_project.value?.id ?? null,
-        sel_run_id: sel_run.value?.id ?? null,
+        sel_run_id:     sel_run.value?.id ?? null,
         onSelectProject: select_project,
-        onSelectRun: select_run,
+        onSelectRun:     select_run,
         onDeleteProject: delete_project,
-        onDeleteRun: delete_run,
+        onDeleteRun:     delete_run,
       }),
-      h('div', {
-        class: 'resize-handle lhandle',
-        onMousedown: start_resize,
-      }),
+      h('div', { class: 'resize-handle lhandle', onMousedown: start_panel_resize }),
       h(MainPanel, {
-        dash: dash.value,
-        is_loading: is_loading.value,
+        dash:        dash.value,
+        is_loading:  is_loading.value,
         sel_project: sel_project.value,
-        sel_run: sel_run.value,
+        sel_run:     sel_run.value,
       }),
       h(StatusBar, {
         sel_project: sel_project.value,
-        sel_run: sel_run.value,
+        sel_run:     sel_run.value,
       }),
     ]);
   },
