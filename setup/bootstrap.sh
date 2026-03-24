@@ -139,29 +139,37 @@ case "$DISTRO" in
 esac
 
 # =============================================================================
-# 2. EBS data volume
+# 2. Data storage location
 # =============================================================================
-info "Setting up data volume at $DATA_MOUNT..."
+echo ""
+echo "Available block devices:"
+lsblk -o NAME,SIZE,TYPE,MOUNTPOINT
+echo ""
+echo "Where would you like to store MLTracker data?"
+echo "  1) Inside the repo:       $REPO_DIR/data/          (simple, no extra disk needed)"
+echo "  2) Dedicated EBS volume:  /mnt/mltracker_data/     (recommended for production)"
+echo "  3) Custom path"
+echo ""
+read -rp "Choice [1/2/3, default=1]: " DATA_CHOICE
+DATA_CHOICE="${DATA_CHOICE:-1}"
 
-# Find the secondary EBS volume (not the root device).
-# Adjust DEVICE if your instance uses a different device name (e.g. /dev/nvme1n1).
-DEVICE=""
-for dev in /dev/xvdf /dev/nvme1n1 /dev/sdb; do
-    if [[ -b "$dev" ]]; then
-        DEVICE="$dev"
-        break
-    fi
-done
+case "$DATA_CHOICE" in
+  2)
+    echo ""
+    echo "Enter the block device for your data volume (e.g. /dev/sdb, /dev/nvme1n1):"
+    lsblk -o NAME,SIZE,TYPE,MOUNTPOINT | grep -v loop
+    read -rp "Device: " DEVICE
+    [[ -z "$DEVICE" ]] && error "Device cannot be empty."
+    [[ ! -b "$DEVICE" ]] && error "Device $DEVICE not found. Run 'lsblk' to list available devices."
 
-if [[ -z "$DEVICE" ]]; then
-    warn "No secondary block device found. Using root volume for data (not recommended for production)."
-    DATA_MOUNT="/home/$REPO_USER/mltracker_data"
-    mkdir -p "$DATA_MOUNT"
-else
+    DATA_MOUNT="/mnt/mltracker_data"
+
     # Format only if the device has no filesystem yet
     if ! blkid "$DEVICE" &>/dev/null; then
         info "Formatting $DEVICE as ext4..."
         mkfs.ext4 -q "$DEVICE"
+    else
+        info "$DEVICE already has a filesystem — skipping format."
     fi
 
     mkdir -p "$DATA_MOUNT"
@@ -173,12 +181,20 @@ else
         echo "UUID=$UUID  $DATA_MOUNT  ext4  defaults,nofail  0  2" >> /etc/fstab
         info "Added $DEVICE to /etc/fstab (UUID=$UUID)"
     fi
-fi
+    ;;
+  3)
+    read -rp "Custom data path: " DATA_MOUNT
+    [[ -z "$DATA_MOUNT" ]] && error "Path cannot be empty."
+    mkdir -p "$DATA_MOUNT"
+    ;;
+  *)
+    DATA_MOUNT="$REPO_DIR/data"
+    info "Using repo data directory: $DATA_MOUNT"
+    ;;
+esac
 
 mkdir -p "$DATA_MOUNT/mltracker"
 mkdir -p "$DATA_MOUNT/backups"
-# Chown the mount point itself and all contents — critical on freshly formatted EBS
-# which is owned by root after mkfs+mount even if the parent dir was chowned before.
 chown "$REPO_USER:$REPO_USER" "$DATA_MOUNT"
 chown -R "$REPO_USER:$REPO_USER" "$DATA_MOUNT"
 info "Data volume ready at $DATA_MOUNT (owner: $REPO_USER)"
@@ -196,7 +212,9 @@ info "Python dependencies installed."
 # 4. Secrets file
 # =============================================================================
 if [[ ! -f /etc/mltracker.env ]]; then
-    cp "$REPO_DIR/setup/env.template" /etc/mltracker.env
+    # Substitute placeholders with the chosen data mount path
+    sed -e "s|__REPO_DIR__|$DATA_MOUNT|g" \
+        "$REPO_DIR/setup/env.template" > /etc/mltracker.env
     chmod 600 /etc/mltracker.env
     chown root:root /etc/mltracker.env
     warn "Secrets file created at /etc/mltracker.env — FILL IN ALL VALUES before starting the service!"
