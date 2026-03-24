@@ -108,31 +108,17 @@ Every new connection must enable WAL mode and foreign key enforcement before use
 `runs` — belongs to a project:
 - `id`, `project_id` (→ projects), `name`, `status` (`running` / `finished` / `crashed`), `config` (JSON blob), `created_at`, `finished_at`
 - Unique on `(project_id, name)`
-- **Delete cascades to metrics and images**
+- **Delete cascades to runs** (projects → runs via FK)
 
-`metrics` — scalar data points:
-- `id`, `run_id` (→ runs), `step`, `key`, `value`, `ts`
-- Index on `(run_id, key)` for fast queries
-- **Unique on `(run_id, step, key)`** — prevents duplicate log entries for the same step
+> **Note:** `metrics` and `images` tables were removed. Scalar data and image references are stored in per-run JSONL files on disk (`data/mywandb/<project_name>/<run_name>/metrics.jsonl`). Images are saved to `images/<step>_<key>.png` in the same run directory. See S-52 in SKILL.md.
 
-`images` — uploaded image references:
-- `id`, `run_id` (→ runs), `step`, `key`, `path` (relative to `data/files/`), `ts`
-- Index on `(run_id, key)` for fast queries
-- **Unique on `(run_id, step, key)`** — re-logging the same step replaces the row (same as metrics)
-
-> ⚠️ **IMPORTANT NOTE [Correctness #2, #12 — Cascade Deletes]**
+> ⚠️ **IMPORTANT NOTE [Correctness #2 — Cascade Deletes]**
 > Every foreign key relationship MUST be declared with `ON DELETE CASCADE`.
-> Deleting a project must automatically delete all its runs, metrics, and images.
-> Deleting a run must automatically delete all its metrics and images.
+> Deleting a project must automatically delete all its runs.
 > Without CASCADE, deleting a project with runs will raise a FK constraint error
 > (because `PRAGMA foreign_keys=ON` is required). Manual multi-table deletes are
 > error-prone — use CASCADE in the schema instead.
-
-> ⚠️ **IMPORTANT NOTE [Data Integrity #8 — Duplicate Metrics]**
-> The `metrics` table MUST have `UNIQUE(run_id, step, key)`.
-> Without this, re-logging the same step (e.g. on retry) silently appends a duplicate row.
-> Charts will then show double values at that step.
-> On conflict, use `INSERT OR REPLACE` to overwrite the old value.
+> JSONL files and image directories must be cleaned up separately via `delete_run_files()` / `delete_project_files()`.
 
 #### 1.5 App factory (`app.py`)
 
@@ -322,16 +308,26 @@ Extract step number from payload (default 0)
   Validate step is a non-negative integer, maximum 10,000,000 — reject with 400 otherwise
 For each key-value pair in payload (excluding 'step' and 'images'):
   Validate key is a non-empty string, max 200 characters — skip or reject invalid keys
-  If value is a number: prepare a metric insert row
+  If value is a number: add to scalars dict
 Validate 'images' field, if present, is a dict of {string: string} — return 400 otherwise
   Validate number of images ≤ 20 — return 400 if exceeded
   For each key-image pair in images:
     Call save_image(); track each saved path in a list
     Prepare an image insert row
-Write all metric rows and image rows in a single DB transaction
-  If transaction or any save_image() fails: delete all successfully saved image files, then re-raise
+Write scalars by calling append_metrics(project_id, run_id, step, scalars)
+  — this appends ONE JSON line to data/files/<project_id>/<run_id>/metrics.jsonl
+  — NO SQLite write for scalars; OS-buffered file append is ~200× faster than WAL fsync
+Write image rows in a single DB transaction (images table still uses SQLite for path lookup)
+  If any save_image() or the DB transaction fails: delete all successfully saved image files, then re-raise
 Return: {"ok": true}
 ```
+
+> ⚠️ **IMPORTANT NOTE [Performance — JSONL metrics, not SQLite]**
+> Scalar metrics MUST be written to the JSONL file, NOT the SQLite metrics table.
+> SQLite WAL commits fsync to disk on every transaction — on Windows this is ~10-20ms/commit.
+> At 200 steps this is 2-4 seconds of wall time just waiting for disk.
+> `open(file, 'a') + write()` uses OS write buffering — no fsync per step.
+> This is the primary reason `log()` was slow. The metrics table has been removed from the schema.
 
 > ⚠️ **IMPORTANT NOTE [Security #1 — Run Ownership on Log]**
 > Always verify that the run's project belongs to the authenticated user before accepting data.
@@ -435,7 +431,9 @@ Return run row as JSON
 **`GET /api/v1/runs/<run_id>/metric-keys`** — list all distinct metric key names for a run:
 ```
 Verify run ownership (JOIN check — same as all other run endpoints)
-Return list of distinct key strings
+Call read_metrics(project_id, run_id) to load all JSONL rows
+Collect all keys from every row (excluding 'step' and 'ts' meta-keys)
+Return sorted list of distinct key strings
 ```
 
 > ⚠️ **IMPORTANT NOTE [Security — Ownership on metric-keys]**
@@ -447,28 +445,24 @@ Return list of distinct key strings
 **`GET /api/v1/runs/<run_id>/metrics?keys=loss,acc&max_points=1000`** — fetch metric time series:
 ```
 Verify run ownership
-If keys param is provided: filter to those keys using parameterised placeholders
-  (build: WHERE key IN (?, ?, ...))
 Read max_points param (default 1000, clamp to [1, 5000])
-For each key:
-  Count total rows
-  If count > max_points: downsample by selecting every Nth row (N = count // max_points)
-    Use: SELECT ... WHERE (id - min_id) % N = 0 ORDER BY step
-  Else: return all rows
-Group results by key: return {key: [{step, value}, ...]}
+Parse keys filter from ?keys= query param (comma-separated)
+Call read_metrics(project_id, run_id) — reads all JSONL rows into memory
+Build per-key series in Python:
+  series = {key: [{step, value}, ...]}  — iterate rows, emit (step, value) per key per row
+If key_list provided: filter series to only those keys
+For each key in series:
+  If len > max_points: downsample by slicing every Nth point (N = len // max_points)
+  Else: return all points
+Return: {metrics: {key: [{step, value}, ...]}, downsampled: bool}
 ```
 
-> ⚠️ **IMPORTANT NOTE [Performance — Metrics pagination]**
-> A run logging 1,000 steps/epoch × 100 epochs = 100,000 rows per metric key.
-> With 10 metric keys that is 1,000,000 rows in a single response — the browser will
-> time out and Chart.js will freeze. The `max_points` downsampling cap is mandatory.
-> Return a `"downsampled": true` flag in the response so the UI can show a notice.
-
-> ⚠️ **IMPORTANT NOTE [Security #5 — Dynamic IN Clause]**
-> When building the `IN (?, ?, ...)` clause, generate the placeholders programmatically
-> from the list length — do NOT format them into the SQL string.
-> Example: `','.join('?' * len(key_list))` inserted into the query template, then
-> pass the actual values as parameters. String-formatting key names into SQL is injection.
+> ⚠️ **IMPORTANT NOTE [Performance — JSONL downsampling in Python]**
+> Downsampling is now done in Python after reading the JSONL file, not via SQL window functions.
+> For typical run sizes (< 100k steps) reading the JSONL and iterating in Python is fast.
+> For very long runs (> 1M steps), consider adding a summary index file.
+> The key insight: even though querying is slightly slower, WRITING is ~200× faster
+> because there is no SQLite fsync per step. This is the right tradeoff for ML training use.
 
 **`GET /api/v1/runs/<run_id>/image-keys`** — list all distinct image key names for a run:
 ```
@@ -630,43 +624,66 @@ App
 
 **Goal:** A one-file Python SDK that training scripts can use with no extra dependencies beyond `requests`.
 
-The SDK exposes two things: `init()` function and the `Run` object it returns.
+The SDK exposes two module-level functions (`init`, `resume`) and the `Run` object they return.
 
-**`init(project, name, api_key, host, config)`:**
+#### Credentials — environment variables only
 ```
-POST /api/v1/runs with project name, run name, and optional config dict
-On success: create and return a Run object holding host, api_key, run_id, project_id
+export WANDB_API_KEY=<your-key>
+export WANDB_HOST=http://localhost:5000   # optional
 ```
+`api_key` and `host` are optional kwargs that default to `None`. A `_resolve_credentials(api_key, host)`
+helper reads from environment variables if the kwargs are `None`, raising `WandBError` if `WANDB_API_KEY`
+is not set.
 
-**`Run.log(data, step)`:**
+**`init(project, name, config=None, api_key=None, host=None)`:**
 ```
-If step is not provided: use internal auto-incrementing counter
-Separate data into scalars (numbers) and images (PIL Image or numpy array)
-For each image value:
-  If numpy array: convert to PIL Image first
-  Encode PIL Image as PNG into memory buffer
-  Base64-encode the buffer bytes
-Build payload: {step, scalar_key: value, ..., images: {key: base64_string, ...}}
-POST /api/v1/runs/<run_id>/log with the payload and Bearer header
-Raise on HTTP error
+Resolve credentials via _resolve_credentials()
+Generate a 6-char hex suffix and append to name: full_name = f"{name}_{suffix}"
+POST /api/v1/runs with {project, name: full_name, config}
+On success: return a Run object holding host, api_key, run_id, project_id, full_name
 ```
 
-**`Run.finish(status)`:**
+**`resume(project, name, api_key=None, host=None)`:**
+```
+Resolve credentials via _resolve_credentials()
+POST /api/v1/runs with {project, name} — idempotent, returns existing run_id
+POST /api/v1/runs/<run_id>/resume — reopens the run for logging
+Return the Run object
+```
+
+**`Run.log(data, step=None, commit=True)`:**
+```
+Accumulate data into self._buffer (key → value; later values overwrite earlier for same key)
+If commit is False:
+  Return immediately without sending — do NOT advance step counter
+If commit is True:
+  Determine step: if step arg given use it; else use self._step
+  Advance self._step to step + 1
+  Merge self._buffer into payload; clear self._buffer
+  Separate payload into scalars (numbers) and images (PIL Image or numpy array)
+  For each image: encode as base64 PNG (convert numpy→PIL first if needed)
+  Build POST body: {step, scalar_key: value, ..., images: {key: b64}}
+  POST /api/v1/runs/<run_id>/log
+  Raise WandBError on HTTP error or {"ok": false}
+```
+
+> ⚠️ **IMPORTANT NOTE [SDK — commit=False matches WandB API]**
+> In WandB, users often call `wandb.log({"loss": loss}, commit=False)` in one place
+> and `wandb.log({"img": img})` (commit=True, the default) in another, within the same step.
+> This SDK replicates that pattern: `commit=False` accumulates into `self._buffer`;
+> the next `commit=True` flushes everything as one POST. The server receives one POST per step
+> regardless of how many `log()` calls were made for that step.
+
+**`Run.finish(status='finished')`:**
 ```
 POST /api/v1/runs/<run_id>/finish with status ('finished' or 'crashed')
 ```
 
-**`Run.resume()`:**
-```
-POST /api/v1/runs/<run_id>/resume with Bearer header
-On success: the run is back in 'running' state and log() will be accepted again
-```
-
 > ⚠️ **IMPORTANT NOTE [SDK — Resume Workflow]**
-> The SDK's `resume()` method is needed when a script wants to continue an existing
-> run that was previously finished or crashed. After calling `resume()`, subsequent
-> `log()` calls will be accepted by the server. Without calling `resume()` first,
-> the server returns 409 and the SDK should raise a clear exception explaining this.
+> Module-level `resume(project, name)` is used to continue an existing run.
+> It calls both `POST /runs` (get the run_id) and `POST /runs/<id>/resume` (reopen it).
+> After resuming, `log()` calls are accepted again. Without calling resume first,
+> the server returns 409 and the SDK raises a clear exception.
 
 ---
 

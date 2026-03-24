@@ -8,6 +8,19 @@ from db import get_db
 auth_bp = Blueprint('auth', __name__)
 oauth    = OAuth()
 
+# ---------------------------------------------------------------------------
+# In-process API-key cache — eliminates DB lookup on every log() call.
+# Key: api_key string  →  Value: user_id int
+# Invalidated when a key is regenerated (call invalidate_api_key below).
+# Per-worker memory (not shared across Gunicorn workers — acceptable for auth).
+# ---------------------------------------------------------------------------
+_KEY_CACHE: dict[str, int] = {}
+
+
+def invalidate_api_key(api_key: str) -> None:
+    """Remove a key from the in-process cache (call after regeneration)."""
+    _KEY_CACHE.pop(api_key, None)
+
 
 def init_oauth(app):
     oauth.init_app(app)
@@ -42,12 +55,19 @@ def api_key_required(f):
         if not auth.startswith('Bearer '):
             return jsonify({'error': 'Missing Authorization header'}), 401
         key = auth[7:].strip()
-        row = get_db().execute(
-            "SELECT id FROM users WHERE api_key = ?", (key,)
-        ).fetchone()
-        if not row:
-            return jsonify({'error': 'Invalid API key'}), 401
-        g.user_id = row['id']
+
+        # Fast path: key already verified this session — no DB call
+        user_id = _KEY_CACHE.get(key)
+        if user_id is None:
+            row = get_db().execute(
+                "SELECT id FROM users WHERE api_key = ?", (key,)
+            ).fetchone()
+            if not row:
+                return jsonify({'error': 'Invalid API key'}), 401
+            user_id = row['id']
+            _KEY_CACHE[key] = user_id
+
+        g.user_id = user_id
         return f(*args, **kwargs)
     return wrapper
 
@@ -58,6 +78,16 @@ def api_key_required(f):
 
 @auth_bp.get('/login')
 def login():
+    """Serve the login page (HTML). Does NOT redirect to Google directly."""
+    from flask import send_from_directory, current_app
+    return send_from_directory(
+        current_app.static_folder, 'login.html'
+    )
+
+
+@auth_bp.get('/google')
+def google_login():
+    """Redirect to Google OAuth consent screen."""
     redirect_uri = url_for('auth.callback', _external=True)
     return oauth.google.authorize_redirect(redirect_uri)
 
@@ -124,6 +154,11 @@ def me():
 def regenerate_key():
     new_key = secrets.token_hex(32)
     db = get_db()
+    # Fetch old key so we can evict it from the in-process cache
+    old = db.execute("SELECT api_key FROM users WHERE id = ?",
+                     (session['user']['id'],)).fetchone()
+    if old:
+        invalidate_api_key(old['api_key'])
     db.execute("UPDATE users SET api_key = ? WHERE id = ?",
                (new_key, session['user']['id']))
     db.commit()

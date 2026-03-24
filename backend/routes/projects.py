@@ -28,6 +28,14 @@ def list_projects():
 def delete_project(project_id):
     user_id = session['user']['id']
     db  = get_db()
+    # Fetch name BEFORE deleting (needed for disk path)
+    proj = db.execute(
+        "SELECT name FROM projects WHERE id = ? AND user_id = ?",
+        (project_id, user_id),
+    ).fetchone()
+    if not proj:
+        return _err('Project not found', 404)
+
     cur = db.execute(
         "DELETE FROM projects WHERE id = ? AND user_id = ?",
         (project_id, user_id),
@@ -36,5 +44,5 @@ def delete_project(project_id):
     if cur.rowcount == 0:
         return _err('Project not found', 404)
 
-    delete_project_files(project_id)
+    delete_project_files(proj['name'])
     return jsonify({'ok': True})

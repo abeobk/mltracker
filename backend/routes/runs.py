@@ -4,11 +4,11 @@ from flask import Blueprint, jsonify, session, request
 
 from auth import login_required
 from db import get_db
-from storage import delete_run_files
+from storage import delete_run_files, read_metrics
 
 runs_bp = Blueprint('runs', __name__)
 
-IMAGE_CAP  = 500
+IMAGE_CAP          = 500
 MAX_POINTS_DEFAULT = 1000
 MAX_POINTS_LIMIT   = 5000
 
@@ -19,8 +19,8 @@ def _err(msg, code=400):
 
 def _owned_run(run_id, user_id):
     return get_db().execute(
-        """SELECT r.id, r.project_id, r.name, r.status, r.config,
-                  r.created_at, r.finished_at
+        """SELECT r.id, r.project_id, r.name AS run_name, r.status, r.config,
+                  r.created_at, r.finished_at, p.name AS project_name
            FROM runs r
            JOIN projects p ON p.id = r.project_id
            WHERE r.id = ? AND p.user_id = ?""",
@@ -30,7 +30,7 @@ def _owned_run(run_id, user_id):
 
 def _owned_project(project_id, user_id):
     return get_db().execute(
-        "SELECT id FROM projects WHERE id = ? AND user_id = ?",
+        "SELECT id, name FROM projects WHERE id = ? AND user_id = ?",
         (project_id, user_id),
     ).fetchone()
 
@@ -63,7 +63,6 @@ def get_run(run_id):
     if not row:
         return _err('Run not found', 404)
     d = dict(row)
-    # Parse config JSON blob gracefully
     if d.get('config'):
         try:
             d['config'] = json.loads(d['config'])
@@ -73,19 +72,21 @@ def get_run(run_id):
 
 
 # ---------------------------------------------------------------------------
-# GET /api/v1/runs/<run_id>/metric-keys
+# GET /api/v1/runs/<run_id>/metric-keys  — scalar keys only
 # ---------------------------------------------------------------------------
 @runs_bp.get('/runs/<int:run_id>/metric-keys')
 @login_required
 def metric_keys(run_id):
     user_id = session['user']['id']
-    if not _owned_run(run_id, user_id):
+    row = _owned_run(run_id, user_id)
+    if not row:
         return _err('Run not found', 404)
-    rows = get_db().execute(
-        "SELECT DISTINCT key FROM metrics WHERE run_id = ? ORDER BY key",
-        (run_id,),
-    ).fetchall()
-    return jsonify([r['key'] for r in rows])
+    all_rows = read_metrics(row['project_name'], row['run_name'])
+    keys = sorted({
+        k for r in all_rows for k, v in r.items()
+        if k not in ('step', 'ts') and isinstance(v, (int, float)) and not isinstance(v, bool)
+    })
+    return jsonify(keys)
 
 
 # ---------------------------------------------------------------------------
@@ -95,63 +96,43 @@ def metric_keys(run_id):
 @login_required
 def get_metrics(run_id):
     user_id = session['user']['id']
-    if not _owned_run(run_id, user_id):
+    row = _owned_run(run_id, user_id)
+    if not row:
         return _err('Run not found', 404)
 
-    # Parse max_points
     try:
         max_pts = int(request.args.get('max_points', MAX_POINTS_DEFAULT))
         max_pts = max(1, min(max_pts, MAX_POINTS_LIMIT))
     except (ValueError, TypeError):
         max_pts = MAX_POINTS_DEFAULT
 
-    # Parse keys filter
     keys_param = request.args.get('keys', '')
-    key_list   = [k.strip() for k in keys_param.split(',') if k.strip()] if keys_param else []
+    key_set    = {k.strip() for k in keys_param.split(',') if k.strip()} if keys_param else set()
 
-    db = get_db()
+    all_rows = read_metrics(row['project_name'], row['run_name'])
+    series: dict = {}
+    for r in all_rows:
+        step = r.get('step', 0)
+        for k, v in r.items():
+            if k in ('step', 'ts'):
+                continue   # ts is metadata, not a chart metric
+            if key_set and k not in key_set:
+                continue
+            if not isinstance(v, (int, float)) or isinstance(v, bool):
+                continue   # skip image refs and other non-numeric values
+            if k not in series:
+                series[k] = []
+            series[k].append({'step': step, 'value': v})
 
-    if key_list:
-        placeholders = ','.join('?' * len(key_list))
-        all_keys = [r['key'] for r in db.execute(
-            f"SELECT DISTINCT key FROM metrics WHERE run_id = ? AND key IN ({placeholders})",
-            [run_id, *key_list],
-        ).fetchall()]
-    else:
-        all_keys = [r['key'] for r in db.execute(
-            "SELECT DISTINCT key FROM metrics WHERE run_id = ? ORDER BY key",
-            (run_id,),
-        ).fetchall()]
-
-    result     = {}
+    result      = {}
     downsampled = False
-
-    for key in all_keys:
-        count = db.execute(
-            "SELECT COUNT(*) FROM metrics WHERE run_id = ? AND key = ?",
-            (run_id, key),
-        ).fetchone()[0]
-
-        if count > max_pts:
+    for key, points in series.items():
+        if len(points) > max_pts:
             downsampled = True
-            # Even-interval downsampling: select every Nth row
-            n = max(1, count // max_pts)
-            rows = db.execute(
-                """SELECT step, value FROM (
-                       SELECT step, value,
-                              ROW_NUMBER() OVER (ORDER BY step) - 1 AS rn
-                       FROM metrics WHERE run_id = ? AND key = ?
-                   ) WHERE rn % ? = 0
-                   ORDER BY step""",
-                (run_id, key, n),
-            ).fetchall()
+            n = max(1, len(points) // max_pts)
+            result[key] = points[::n]
         else:
-            rows = db.execute(
-                "SELECT step, value FROM metrics WHERE run_id = ? AND key = ? ORDER BY step",
-                (run_id, key),
-            ).fetchall()
-
-        result[key] = [{'step': r['step'], 'value': r['value']} for r in rows]
+            result[key] = points
 
     return jsonify({'metrics': result, 'downsampled': downsampled})
 
@@ -163,13 +144,15 @@ def get_metrics(run_id):
 @login_required
 def image_keys(run_id):
     user_id = session['user']['id']
-    if not _owned_run(run_id, user_id):
+    row = _owned_run(run_id, user_id)
+    if not row:
         return _err('Run not found', 404)
-    rows = get_db().execute(
-        "SELECT DISTINCT key FROM images WHERE run_id = ? ORDER BY key",
-        (run_id,),
-    ).fetchall()
-    return jsonify([r['key'] for r in rows])
+    all_rows = read_metrics(row['project_name'], row['run_name'])
+    keys = sorted({
+        k for r in all_rows for k, v in r.items()
+        if k != 'step' and isinstance(v, dict) and v.get('type') == 'image'
+    })
+    return jsonify(keys)
 
 
 # ---------------------------------------------------------------------------
@@ -179,29 +162,34 @@ def image_keys(run_id):
 @login_required
 def get_images(run_id):
     user_id = session['user']['id']
-    if not _owned_run(run_id, user_id):
+    row = _owned_run(run_id, user_id)
+    if not row:
         return _err('Run not found', 404)
 
     key = request.args.get('key', '').strip()
     if not key:
         return _err("'key' query parameter is required")
 
-    db    = get_db()
-    total = db.execute(
-        "SELECT COUNT(*) FROM images WHERE run_id = ? AND key = ?",
-        (run_id, key),
-    ).fetchone()[0]
+    project_name = row['project_name']
+    run_name     = row['run_name']
 
-    # Return last IMAGE_CAP steps if total exceeds cap
-    rows = db.execute(
-        """SELECT step, path FROM images WHERE run_id = ? AND key = ?
-           ORDER BY step DESC LIMIT ?""",
-        (run_id, key, IMAGE_CAP),
-    ).fetchall()
-    rows = list(reversed(rows))   # back to ascending order
+    all_rows = read_metrics(project_name, run_name)
+    # Collect all steps where this key has an image ref
+    entries = []
+    for r in all_rows:
+        v = r.get(key)
+        if isinstance(v, dict) and v.get('type') == 'image':
+            from storage import _safe_name
+            filename = v['name']
+            url_path = f"{_safe_name(project_name)}/{_safe_name(run_name)}/images/{filename}"
+            entries.append({'step': r.get('step', 0), 'url': f"/files/{url_path}"})
 
-    items = [{'step': r['step'], 'url': f"/files/{r['path']}"} for r in rows]
-    return jsonify({'images': items, 'total': total})
+    total = len(entries)
+    # Cap at IMAGE_CAP most recent steps
+    if total > IMAGE_CAP:
+        entries = entries[-IMAGE_CAP:]
+
+    return jsonify({'images': entries, 'total': total})
 
 
 # ---------------------------------------------------------------------------
@@ -211,11 +199,11 @@ def get_images(run_id):
 @login_required
 def delete_run(run_id):
     user_id = session['user']['id']
-    # Fetch project_id BEFORE deleting (needed for disk path)
     row = _owned_run(run_id, user_id)
     if not row:
         return _err('Run not found', 404)
-    project_id = row['project_id']
+    project_name = row['project_name']
+    run_name     = row['run_name']
 
     db  = get_db()
     cur = db.execute(
@@ -228,5 +216,5 @@ def delete_run(run_id):
     if cur.rowcount == 0:
         return _err('Run not found', 404)
 
-    delete_run_files(project_id, run_id)
+    delete_run_files(project_name, run_name)
     return jsonify({'ok': True})

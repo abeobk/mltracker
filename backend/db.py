@@ -51,27 +51,9 @@ CREATE TABLE IF NOT EXISTS runs (
     UNIQUE(project_id, name)
 );
 
-CREATE TABLE IF NOT EXISTS metrics (
-    id     INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-    step   INTEGER NOT NULL,
-    key    TEXT NOT NULL,
-    value  REAL NOT NULL,
-    ts     REAL NOT NULL DEFAULT (unixepoch('now')),
-    UNIQUE(run_id, step, key)
-);
-CREATE INDEX IF NOT EXISTS idx_metrics_run_key ON metrics(run_id, key);
-
-CREATE TABLE IF NOT EXISTS images (
-    id     INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-    step   INTEGER NOT NULL,
-    key    TEXT NOT NULL,
-    path   TEXT NOT NULL,
-    ts     REAL NOT NULL DEFAULT (unixepoch('now')),
-    UNIQUE(run_id, step, key)
-);
-CREATE INDEX IF NOT EXISTS idx_images_run_key ON images(run_id, key);
+-- Images are stored as files in mywandb/<project_name>/<run_name>/images/
+-- and referenced inline in metrics.jsonl as {"type": "image", "name": "<filename>"}
+-- No SQLite table needed for images.
 """
 
 

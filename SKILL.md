@@ -110,18 +110,17 @@ row = cur.fetchone()
 run_id = row['id']   # column by name
 ```
 
-### S-08 · Wrap batch inserts in a single transaction; use `INSERT OR REPLACE` for unique tables
+### S-08 · Wrap batch inserts in a single transaction; use `INSERT OR IGNORE` for idempotent upserts
 ```python
 with get_db() as conn:   # auto-commits or rolls back on exception
-    conn.executemany(
-        "INSERT OR REPLACE INTO metrics(run_id, step, key, value) VALUES (?,?,?,?)",
-        [(run_id, step, k, v) for k, v in scalars.items()]
+    conn.execute(
+        "INSERT OR IGNORE INTO projects(user_id, name) VALUES (?, ?)",
+        (user_id, name)
     )
 ```
-One transaction for 100 rows is ~100× faster than 100 individual commits.
-Use `INSERT OR REPLACE` for tables with UNIQUE constraints (`metrics`, `images`) so that
-re-logging the same step overwrites the old value instead of raising IntegrityError.
-Use plain `INSERT` only for append-only tables with no uniqueness requirement.
+One transaction for N rows is ~N× faster than N individual commits.
+Use `INSERT OR IGNORE` for tables where the row may already exist and you don't want to overwrite it (e.g. project/run creation).
+Scalar metrics and images are no longer stored in SQLite — they go to JSONL files (see S-52).
 
 ---
 
@@ -179,18 +178,18 @@ key = auth[7:].strip()
 
 ## File Storage
 
-### S-14 · Never use user-controlled strings as path components — sanitise `key` first
-Build storage paths from DB-issued integer IDs and a **sanitised** key only.
-Never use the raw project name, run name, or image key — they are user-supplied strings
-that can contain `../`, `/`, or other shell-special characters.
+### S-14 · Never use raw user-controlled strings as path components — sanitise first
+Build storage paths from sanitised project name, run name, and key only.
+Never use them raw — they are user-supplied strings that can contain `../`, `/`, or shell-special characters.
 ```python
-safe_key = ''.join(c if c.isalnum() or c in '-_' else '_' for c in key)
-rel_path  = f"{project_id}/{run_id}/{step}_{safe_key}.png"
-abs_path  = os.path.join(FILES_DIR, rel_path)
-os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+def _safe_name(name: str) -> str:
+    return ''.join(c if c.isalnum() or c in '-_.' else '_' for c in name)
+
+run_dir  = os.path.join(FILES_DIR, _safe_name(project_name), _safe_name(run_name))
+filename = f"{step}_{_safe_name(key)}.png"
 ```
-The sanitisation replaces every character that is not alphanumeric, `-`, or `_` with `_`.
-This eliminates path traversal via `key` values like `../../etc/passwd`.
+The sanitisation keeps alphanumeric, `-`, `_`, `.` and replaces everything else with `_`.
+This eliminates path traversal via names/keys like `../../etc/passwd`.
 
 ### S-15 · Decode base64 images server-side — size check FIRST, then validate, then save
 The function signature in `storage.py` takes the path components separately so that
@@ -203,31 +202,27 @@ from flask import current_app
 
 MAX_B64_BYTES = 27_000_000   # ~20 MB decoded
 
-def save_image(data_b64: str, project_id: int, run_id: int, step: int, key: str) -> str:
-    """Validate, decode, save image. Returns relative path for DB storage."""
+def save_image(data_b64: str, project_name: str, run_name: str, step: int, key: str) -> str:
+    """Validate, decode, save image. Returns filename only (e.g. '5_pred.png')."""
     if len(data_b64) > MAX_B64_BYTES:
         raise ValueError("Image payload too large")
-    # validate=True rejects non-base64 characters cleanly (returns 400, not a mangled decode)
     try:
         raw = base64.b64decode(data_b64, validate=True)
     except Exception:
         raise ValueError("Invalid base64 encoding")
-    # Cap pixel count BEFORE Image.open() to block decompression bombs:
-    # a small valid PNG can expand to gigabytes of RAM if dimensions are huge.
-    # PIL raises DecompressionBombError if pixel count exceeds this cap.
-    Image.MAX_IMAGE_PIXELS = 50_000_000   # ~7 GB uncompressed RGB — safe upper bound
+    Image.MAX_IMAGE_PIXELS = 50_000_000
     try:
-        img = Image.open(io.BytesIO(raw))   # raises if not a valid image
-        img.load()                          # force full decode (catches lazy-loaded bombs)
+        img = Image.open(io.BytesIO(raw))
+        img.load()
     except Image.DecompressionBombError:
         raise ValueError("Image dimensions too large")
-    img = img.convert('RGB')            # normalise; drop alpha channel
-    safe_key = ''.join(c if c.isalnum() or c in '-_' else '_' for c in key)
-    rel_path  = f"{project_id}/{run_id}/{step}_{safe_key}.png"
-    abs_path  = os.path.join(current_app.config['FILES_DIR'], rel_path)
-    os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-    img.save(abs_path, format='PNG')
-    return rel_path
+    img = img.convert('RGB')
+    safe_key   = _safe_name(key)
+    filename   = f"{step}_{safe_key}.png"
+    images_dir = os.path.join(_run_dir(project_name, run_name), 'images')
+    os.makedirs(images_dir, exist_ok=True)
+    img.save(os.path.join(images_dir, filename), format='PNG')
+    return filename   # stored in JSONL; URL built by route handler
 ```
 Use `current_app.config['FILES_DIR']` — never a module-level constant — because the path
 is set in the app factory and is only available inside a request context.
@@ -437,12 +432,6 @@ run_id     INTEGER NOT NULL REFERENCES runs(id)     ON DELETE CASCADE
 Without CASCADE, deleting a project that has runs raises a FK constraint error
 (when `PRAGMA foreign_keys=ON`). Manual multi-table deletes are error-prone — use CASCADE.
 
-### S-37 · `UNIQUE(run_id, step, key)` on metrics — use `INSERT OR REPLACE`
-The metrics table must enforce uniqueness on `(run_id, step, key)`.
-Without it, re-logging the same step appends duplicate rows; charts show double values.
-Use `INSERT OR REPLACE INTO metrics(...)` so that re-logging a step overwrites the old value
-instead of erroring or duplicating.
-
 ---
 
 ## Configuration & Secrets
@@ -492,40 +481,34 @@ def me():
 This is the only auth endpoint that must NOT use `@login_required`.
 
 ### S-47 · Roll back saved image files if a batch log fails partway through
-When logging multiple images in one step, save each to disk and track the paths.
-If any later save (or the DB transaction) fails, delete the successfully-saved files:
+When logging multiple images in one step, save each to disk and track the filenames.
+If any later save (or the JSONL append) fails, delete the successfully-saved files:
 ```python
-saved_paths = []
+saved_filenames = []
+images_dir = os.path.join(_run_dir(project_name, run_name), 'images')
 try:
-    for key, b64 in images.items():
-        rel = save_image(b64, project_id, run_id, step, key)
-        saved_paths.append(rel)
-    # write all DB rows in one transaction
-    with db:
-        db.executemany(...)
+    for key, b64 in images_raw.items():
+        filename = save_image(b64, project_name, run_name, step, key)
+        saved_filenames.append(filename)
+    append_metrics(project_name, run_name, step, scalars, image_refs, ts)
 except Exception:
-    for rel in saved_paths:
-        abs_path = os.path.join(current_app.config['FILES_DIR'], rel)
-        if os.path.exists(abs_path):
-            os.remove(abs_path)
+    for fname in saved_filenames:
+        path = os.path.join(images_dir, fname)
+        if os.path.exists(path):
+            os.remove(path)
     raise
 ```
 Without this, a partial failure leaves orphaned image files on disk that are never cleaned up.
 
-### S-48 · Delete image files from disk when deleting a run or project
-The DB cascade removes image rows, but the actual files in `data/files/` remain.
-After the DB DELETE, remove the run's directory:
+### S-48 · Delete run/project files from disk when deleting via API
+The DB cascade removes run/project rows, but the `data/mywandb/` directories remain.
+After the DB DELETE, call the storage helpers:
 ```python
-import shutil
-run_dir = os.path.join(current_app.config['FILES_DIR'], str(project_id), str(run_id))
-shutil.rmtree(run_dir, ignore_errors=True)
+delete_run_files(project_name, run_name)      # shutil.rmtree(run_dir)
+delete_project_files(project_name)            # shutil.rmtree(proj_dir)
 ```
-For project deletion, remove the entire project directory:
-```python
-proj_dir = os.path.join(current_app.config['FILES_DIR'], str(project_id))
-shutil.rmtree(proj_dir, ignore_errors=True)
-```
-`ignore_errors=True` prevents failures if the directory never existed (e.g. a run with no images).
+Paths are built from sanitised names via `_safe_name()`, not integer IDs.
+`ignore_errors=True` prevents failures if the directory never existed (e.g. a run with no logs).
 
 ### S-42 · Return 404 (not silent 200) when a DELETE targets a non-owned resource
 When deleting a project or run, the WHERE clause includes `AND user_id = ?` (or the
@@ -635,6 +618,236 @@ def health():
     except Exception as e:
         return jsonify({"status": "error", "detail": str(e)}), 500
 ```
+
+---
+
+### S-52 · Store scalar metrics and image refs as append-only JSONL, not SQLite rows
+SQLite WAL commits fsync to disk on every transaction. On Windows this is ~10-20ms per commit.
+A run logging 200 steps × 1 commit = 2-4 seconds of wall time just on disk syncs.
+
+Instead, write each log step as one JSON line appended to a per-run file:
+```
+data/mywandb/<project_name>/<run_name>/metrics.jsonl
+```
+(Names are sanitised with `_safe_name()` — alphanumeric, `-`, `_`, `.` only.)
+
+Each line is a flat JSON object with step, optional ts, scalars, and image refs:
+```json
+{"step": 0, "ts": 1718000000.1, "loss": 0.50, "acc": 0.70}
+{"step": 1, "ts": 1718000005.3, "loss": 0.40, "pred": {"type": "image", "name": "1_pred.png"}}
+```
+`open(file, 'a') + write()` uses OS write buffering — no fsync per append.
+This is ~200× faster than SQLite WAL per step on Windows.
+
+**SQLite is used for:** users, projects, runs (metadata only — no data written during log()).
+**JSONL is used for:** scalar metrics AND image references (inline in same line as scalars).
+**Images** are saved to `images/<step>_<key>.png`; only the filename is stored in JSONL.
+**Cleanup:** `shutil.rmtree(run_dir)` removes `metrics.jsonl` and `images/` together.
+
+```python
+import json, os
+
+def append_metrics(project_name, run_name, step, scalars,
+                   image_refs=None, ts=None):
+    row = {'step': step}
+    if ts is not None:
+        row['ts'] = ts
+    row.update(scalars)
+    if image_refs:
+        for key, filename in image_refs.items():
+            row[key] = {'type': 'image', 'name': filename}
+    path = metrics_path(project_name, run_name)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'a', encoding='utf-8') as f:
+        f.write(json.dumps(row) + '\n')
+```
+
+Querying: read all rows, skip `'step'` and `'ts'` keys, build per-key series in Python, apply downsampling (every Nth point). Image keys are those whose value is `{"type": "image", ...}`.
+
+---
+
+### S-53 · commit=False buffering + async posting in SDK (matches WandB pattern)
+WandB lets users accumulate data across multiple `log()` calls within one step:
+```python
+run.log({"loss": loss}, commit=False)   # buffer — don't send yet
+run.log({"acc": acc},   commit=False)   # buffer more
+run.log({"img": img})                   # commit=True (default) — flush all + send
+```
+
+`log()` returns immediately — the actual HTTP POST happens in a background thread via a `queue.Queue`. The background thread greedily drains the queue and batches multiple steps into one POST when possible (see S-56).
+
+```python
+def log(self, data, step=None, commit=True):
+    self._buffer.update(data)
+    if not commit:
+        return  # accumulate only — no network call
+
+    ts = time.time()   # timestamp at commit moment
+    if step is None:
+        step = self._step; self._step += 1
+    else:
+        self._step = step + 1
+
+    payload = {'step': step, 'ts': ts}
+    images  = {}
+    for key, value in self._buffer.items():
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            payload[key] = value
+        else:
+            images[key] = self._encode_image(value)
+    self._buffer.clear()
+    if images:
+        payload['images'] = images
+    self._queue.put(payload)   # non-blocking — worker handles POST
+
+def finish(self, status='finished'):
+    if self._buffer:
+        self.log({})          # force flush uncommitted data
+    self._queue.put(None)     # shutdown sentinel
+    self._worker.join()       # wait for all POSTs to complete
+    if self._worker_error:
+        raise self._worker_error
+    self._post(f'/api/v1/runs/{self._run_id}/finish', {'status': status})
+```
+
+**Key rules:**
+- `commit=False` does NOT advance the step counter or timestamp
+- Buffer is cleared on every `commit=True` flush
+- `self._buffer` initialised to `{}`, `self._queue = queue.Queue()`, daemon thread started in `__init__`
+- `finish()` MUST be called to guarantee all steps are delivered
+
+---
+
+### S-54 · In-memory caches eliminate SQLite calls on the hot log() path
+Even after removing all SQLite writes from `log()`, the `get_db()` call still creates a new
+SQLite connection per request (Flask `g` is per-request), which costs ~5–10ms on Windows even
+for a read-only query (connection setup + `PRAGMA journal_mode=WAL` + `PRAGMA foreign_keys=ON`).
+
+Fix with two in-memory dicts that persist across requests:
+
+**Auth cache** (`auth.py`):
+```python
+_KEY_CACHE: dict[str, int] = {}   # api_key → user_id
+
+def api_key_required(f):
+    def wrapper(*args, **kwargs):
+        key = request.headers.get('Authorization', '')[7:].strip()
+        user_id = _KEY_CACHE.get(key)
+        if user_id is None:
+            row = get_db().execute("SELECT id FROM users WHERE api_key=?", (key,)).fetchone()
+            if not row: return jsonify({'error':'Invalid API key'}), 401
+            user_id = row['id']
+            _KEY_CACHE[key] = user_id
+        g.user_id = user_id
+        return f(*args, **kwargs)
+    return wrapper
+
+def invalidate_api_key(api_key: str):
+    _KEY_CACHE.pop(api_key, None)  # call this from regenerate-key route
+```
+
+**Run cache** (`routes/api.py`):
+```python
+_RUN_CACHE: dict[tuple, dict] = {}   # (run_id, user_id) → run_info dict
+
+def _get_owned_run(run_id, user_id):
+    cached = _RUN_CACHE.get((run_id, user_id))
+    if cached: return cached
+    row = get_db().execute("""
+        SELECT r.id, r.project_id, r.status, r.name AS run_name, p.name AS project_name
+        FROM runs r JOIN projects p ON p.id = r.project_id
+        WHERE r.id = ? AND p.user_id = ?""", (run_id, user_id)).fetchone()
+    if row and row['status'] == 'running':
+        _RUN_CACHE[(run_id, user_id)] = dict(row)   # store as plain dict — Row invalid after close
+    return row
+
+# Evict from cache on finish/resume so next call re-checks status:
+_RUN_CACHE.pop((run_id, g.user_id), None)
+```
+
+After cache warm-up, the hot `log()` path makes zero SQLite calls. Only `running` runs are cached — `finish`/`resume` evict the entry.
+
+---
+
+### S-55 · `wandb.Image` client wrapper for logging images (including OpenCV BGR arrays)
+```python
+class Image:
+    """Wrap a numpy array or PIL Image for logging.
+
+    Args:
+        data:  numpy array (H×W×3 uint8) or PIL Image
+        bgr:   True for OpenCV/cv2 arrays — channels are flipped BGR→RGB before encoding
+        caption: optional string (reserved for future display)
+    """
+    def __init__(self, data, bgr=False, caption=''):
+        self.data    = data
+        self.bgr     = bgr
+        self.caption = caption
+```
+
+In `Run._encode_image()`, unwrap `wandb.Image` first:
+```python
+if isinstance(value, Image):
+    raw = value.data
+    try:
+        import numpy as np
+        if isinstance(raw, np.ndarray):
+            if value.bgr and raw.ndim == 3 and raw.shape[2] == 3:
+                raw = raw[..., ::-1]   # BGR → RGB (view, no copy needed)
+            from PIL import Image as PILImage
+            raw = PILImage.fromarray(raw.astype('uint8'))
+    except ImportError:
+        pass
+    value = raw
+# ... then fall through to the existing PIL/numpy encoding path
+```
+
+The BGR flip is a numpy advanced index — `raw[..., ::-1]` reverses channel order in-place (view).
+
+---
+
+### S-56 · Batch POST format — bundle multiple steps into one HTTP request
+When `log()` is called faster than the server responds, the background thread's queue
+accumulates multiple payloads. The worker drains them greedily and sends them in one POST:
+
+**SDK worker:**
+```python
+def _post_worker(self):
+    while True:
+        item = self._queue.get()           # block until first item
+        if item is None: return            # shutdown sentinel
+        batch = [item]
+        while True:                        # drain what's already queued
+            try:
+                extra = self._queue.get_nowait()
+                if extra is None:
+                    self._flush_batch(batch); return
+                batch.append(extra)
+            except queue.Empty:
+                break
+        self._flush_batch(batch)
+
+def _flush_batch(self, batch):
+    body = batch[0] if len(batch) == 1 else {'steps': batch}
+    result = self._post(f'/api/v1/runs/{self._run_id}/log', body)
+    if not result.get('ok'):
+        self._worker_error = WandBError(f"log() failed: {result}")
+```
+
+**Server handler:**
+```python
+if 'steps' in data:
+    for step_data in data['steps']:
+        err = _log_single_step(run, step_data)
+        if err: return err
+else:
+    err = _log_single_step(run, data)
+    if err: return err
+return jsonify({'ok': True})
+```
+
+Single-step format: `{step, ts, loss: 0.3, images: {...}}`
+Batch format: `{steps: [{step, ts, ...}, {step, ts, ...}, ...]}`
 
 ---
 

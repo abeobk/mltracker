@@ -3,14 +3,9 @@
 ## Agent Workflow Rules
 
 - Read SKILL.md before starting any task.
-- Always plan before writing code; log steps in `log.md` (append only, never delete).
 - Develop knowhow continuously and write it to **`SKILL.md`**.
-- **Before every `git commit`** — all three must be updated:
-  1. `log.md` — append entry describing what changed and why
-  2. `PROGRAM_update.md` — evolve the spec to reflect the new state; must always be clearer, more accurate, and more elaborated than `PROGRAM.md`
-  3. `SKILL.md` — add any new skill, gotcha, or pattern acquired
-- Auto-commit on each bug fix; write a detailed commit message.
-- `PROGRAM_update.md` is the single authoritative spec — supersedes `PROGRAM.md`
+- **Before every `git commit`** — update `PROGRAM.md` and `SKILL.md` to reflect the new state.
+- Write detailed commit messages explaining what changed and why.
 
 ---
 
@@ -76,8 +71,10 @@ wandb_clone/
 │   └── app.js              Vue 3 app — all components
 ├── data/
 │   ├── wandb.db            SQLite database (auto-created on first run)
-│   └── files/              Uploaded images / artifacts
-│       └── <project_id>/<run_id>/<step>_<key>.png
+│   └── mywandb/            Run data — metrics JSONL + images
+│       └── <project_name>/<run_name>/
+│           ├── metrics.jsonl
+│           └── images/<step>_<key>.png
 ├── gunicorn.conf.py        Production worker config
 ├── nginx.conf              Reverse-proxy config (reference)
 └── .gitignore              Excludes data/, .env, venv/, __pycache__/
@@ -128,7 +125,10 @@ wandb_clone/
 
 ---
 
-## Database Schema (SQLite)
+## Storage Architecture
+
+### SQLite — metadata only
+SQLite stores users, projects, and run lifecycle metadata. It is **never written during `log()`** — only on run create, finish, and resume. This eliminates the per-step fsync bottleneck.
 
 All foreign keys use `ON DELETE CASCADE`. `PRAGMA foreign_keys=ON` and `PRAGMA journal_mode=WAL` are set on every connection.
 
@@ -159,26 +159,25 @@ runs
   finished_at  REAL
   UNIQUE(project_id, name)
 
-metrics
-  id      INTEGER PRIMARY KEY AUTOINCREMENT
-  run_id  INTEGER NOT NULL → runs(id) ON DELETE CASCADE
-  step    INTEGER NOT NULL
-  key     TEXT NOT NULL
-  value   REAL NOT NULL
-  ts      REAL NOT NULL DEFAULT (unixepoch('now'))
-  UNIQUE(run_id, step, key)          ← prevents duplicate log entries
-  INDEX ON (run_id, key)
-
-images
-  id      INTEGER PRIMARY KEY AUTOINCREMENT
-  run_id  INTEGER NOT NULL → runs(id) ON DELETE CASCADE
-  step    INTEGER NOT NULL
-  key     TEXT NOT NULL
-  path    TEXT NOT NULL              -- relative to data/files/
-  ts      REAL NOT NULL DEFAULT (unixepoch('now'))
-  UNIQUE(run_id, step, key)          ← re-logging same step replaces the image row
-  INDEX ON (run_id, key)
 ```
+
+Note: the old `metrics` and `images` SQLite tables were removed. Scalar metrics and image references are now stored in JSONL files on disk (see below).
+
+### JSONL files — scalar metrics and image references
+Each run gets one append-only file: `data/mywandb/<project_name>/<run_name>/metrics.jsonl`
+(Names are sanitised with `_safe_name()` — alphanumeric, `-`, `_`, `.` only.)
+
+Every committed `log()` call appends one line — a flat JSON object with `step`, optional `ts` (Unix timestamp), scalar values, and image refs:
+```
+{"step": 0, "ts": 1718000000.1, "loss": 0.50, "acc": 0.70}
+{"step": 1, "ts": 1718000005.3, "loss": 0.40, "acc": 0.75, "pred": {"type": "image", "name": "1_pred.png"}}
+```
+
+- **Why JSONL?** `open(file, 'a') + write()` is buffered by the OS — no fsync per step. SQLite WAL commits still sync to disk. For a run logging 200 steps this difference is ~200× on Windows.
+- **Image refs inline:** images are saved to `images/<step>_<key>.png`; the filename is stored as `{"type": "image", "name": "<filename>"}` in the same JSONL line as scalars.
+- **Timestamp:** `ts` is recorded at the moment `log(commit=True)` is called on the client.
+- **Queries:** metric reads scan the JSONL file in Python. For typical run sizes (< 100k steps) this is fast. Downsampling is applied in Python after reading.
+- **Cleanup:** `delete_run_files()` calls `shutil.rmtree(run_dir)`, removing `metrics.jsonl` and `images/` together.
 
 ---
 
@@ -191,7 +190,7 @@ All API routes are under `/api/v1/`. Script clients use `Authorization: Bearer <
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | `POST` | `/api/v1/runs` | `{project, name, config?}` | Create a new run (idempotent — returns existing run if name matches) |
-| `POST` | `/api/v1/runs/<run_id>/log` | `{step, scalar_key: value, images: {key: base64}}` | Log one step; **rejected with 409 if run is not `running`** |
+| `POST` | `/api/v1/runs/<run_id>/log` | `{step, scalar_key: value, images: {key: base64}}` | Log one step; appends one line to the run's `metrics.jsonl`; **rejected with 409 if run is not `running`** |
 | `POST` | `/api/v1/runs/<run_id>/finish` | `{status}` | Mark run `finished` or `crashed`; only owner can call this |
 | `POST` | `/api/v1/runs/<run_id>/resume` | — | Reopen a terminated run for logging; only owner can call this |
 
@@ -211,8 +210,15 @@ All API routes are under `/api/v1/`. Script clients use `Authorization: Bearer <
   }
 }
 ```
-- Number values → `metrics` table (keyed by the field name)
-- `images` dict → each PNG decoded, validated, saved to `data/files/<proj_id>/<run_id>/<step>_<key>.png`; path written to `images` table
+- Number values → appended to `metrics.jsonl` as scalar fields
+- `images` dict → each PNG decoded, validated, saved to `data/mywandb/<proj_name>/<run_name>/images/<step>_<key>.png`; filename stored inline in `metrics.jsonl` as `{"type": "image", "name": "<filename>"}`
+- `ts` field → client-side Unix timestamp recorded at commit time, stored in JSONL
+
+**Batch format** (SDK sends when multiple steps accumulated faster than one POST):
+```json
+{"steps": [{"step": 0, "ts": ..., "loss": 0.5}, {"step": 1, "ts": ..., "loss": 0.4}]}
+```
+The server detects the `"steps"` key and processes each element via the same single-step logic.
 
 ### Query endpoints (dashboard → server, session auth)
 
@@ -221,8 +227,8 @@ All API routes are under `/api/v1/`. Script clients use `Authorization: Bearer <
 | `GET` | `/api/v1/projects` | List user's projects |
 | `GET` | `/api/v1/projects/<id>/runs` | List runs in a project |
 | `GET` | `/api/v1/runs/<id>` | Run metadata + config |
-| `GET` | `/api/v1/runs/<id>/metric-keys` | List distinct metric key names (ownership required) |
-| `GET` | `/api/v1/runs/<id>/metrics?keys=loss,acc&max_points=1000` | Time series for requested keys, grouped by key; `max_points` (default 1000, max 5000) triggers server-side even-interval downsampling — prevents multi-million-row responses on long runs |
+| `GET` | `/api/v1/runs/<id>/metric-keys` | List distinct metric key names — parsed from `metrics.jsonl` (ownership required) |
+| `GET` | `/api/v1/runs/<id>/metrics?keys=loss,acc&max_points=1000` | Time series for requested keys, parsed from `metrics.jsonl`, grouped by key; `max_points` (default 1000, max 5000) triggers Python-side even-interval downsampling |
 | `GET` | `/api/v1/runs/<id>/image-keys` | List distinct image key names (ownership required) |
 | `GET` | `/api/v1/runs/<id>/images?key=input` | List of `{step, url}` for an image key; `key` param required; capped at 500 entries (last 500 steps if more exist) |
 | `GET` | `/files/<path>` | Serve a stored image file (login required) |
@@ -316,23 +322,64 @@ The interval timer MUST be cleared when the selection changes or the component u
 
 Single-file SDK, no dependencies beyond `requests`.
 
-Usage:
+### Credentials
+Credentials are read from environment variables (preferred) or passed explicitly:
 ```
-run = wandb.init(project="mnist", name="exp-001", api_key="<key>", host="http://localhost:5000")
-run.log({"loss": 0.3, "acc": 0.9}, step=0)
-run.finish()
+export WANDB_API_KEY=<your-key>
+export WANDB_HOST=http://localhost:5000   # optional, default localhost:5000
+```
 
-# To continue a finished/crashed run:
-run.resume()
+### Usage
+```python
+# New run — suffix auto-generated and appended to name
+run = wandb.init(project="mnist", name="exp-001", config={"lr": 0.001})
+print(run.name)   # e.g. "exp-001_a3f2b1" — save this to resume later
+
+# Simple logging (one call per step) — returns immediately, posts in background
+run.log({"loss": 0.3, "acc": 0.9}, step=0)
+
+# Log a PIL image or numpy array
+import numpy as np
+arr = np.random.randint(0, 256, (100, 100, 3), dtype=np.uint8)
+run.log({"frame": wandb.Image(arr)})
+
+# OpenCV BGR array
+run.log({"frame": wandb.Image(cv2_frame, bgr=True)})
+
+# Accumulate across multiple log() calls within one step (commit=False pattern)
+run.log({"loss": 0.3}, commit=False)   # buffer, don't send yet
+run.log({"acc": 0.9}, commit=False)    # buffer more
+run.log({"img": wandb.Image(arr)})     # commit=True (default) — flush all + send
+
+run.finish()   # waits for all background POSTs to complete before marking run done
+
+# Resume a terminated run
+run = wandb.resume(project="mnist", name="exp-001_a3f2b1")
 run.log({"loss": 0.2}, step=100)
 run.finish()
 ```
 
-Methods:
-- `init(project, name, api_key, host, config)` → `Run` object
-- `Run.log(data, step)` → POST `/api/v1/runs/<id>/log`; images encoded as base64 PNG if value is a PIL Image or numpy array
-- `Run.finish(status='finished')` → POST `/api/v1/runs/<id>/finish`
-- `Run.resume()` → POST `/api/v1/runs/<id>/resume`; raises a clear error if the server rejects it
+### Classes
+- `wandb.Image(data, bgr=False, caption='')` — wrap a numpy array or PIL Image for logging.
+  - `data`: numpy array (H×W×3 uint8) or PIL Image
+  - `bgr=True`: flip channels BGR→RGB before encoding (for OpenCV/cv2 arrays)
+  - Encoded as base64 PNG when `log()` commits
+
+### Methods
+- `init(project, name, config=None, api_key=None, host=None)` → `Run`; appends 6-char hex suffix to name; reads credentials from env
+- `resume(project, name, api_key=None, host=None)` → `Run`; reads credentials from env
+- `Run.log(data, step=None, commit=True)`:
+  - `commit=True` (default): timestamp + flush buffer + enqueue for async POST, advance step counter. Returns immediately.
+  - `commit=False`: accumulate `data` into `_buffer`, do NOT send, do NOT advance step
+  - Images (`wandb.Image`, PIL Image, or numpy array) encoded as base64 PNG automatically
+- `Run.finish(status='finished')` → flushes buffer, sends shutdown sentinel, waits for background thread, then POSTs `/api/v1/runs/<id>/finish`
+
+### Async posting and batching
+`log()` returns immediately. The actual HTTP POST happens in a background daemon thread.
+The thread greedily drains its queue — if multiple steps are queued faster than the server responds, they are bundled into one POST as `{"steps": [...]}`. `finish()` sends a sentinel and waits for the thread to join before marking the run done.
+
+### commit=False behaviour (matches WandB)
+When `commit=False`, metrics accumulate client-side in `run._buffer`. Multiple `log()` calls can build up data for one step. The next `commit=True` call merges the buffer with any new data and enqueues a single POST. The server always receives one POST per step.
 
 ---
 
@@ -365,7 +412,7 @@ Secrets are stored in `/etc/wandb_clone.env` (mode 600, root-owned), loaded via 
 - **DELETE 404 on mismatch:** `DELETE /projects/<id>` and `DELETE /runs/<id>` check `cursor.rowcount` after the query. If 0 rows deleted (resource doesn't exist or belongs to another user), return 404 — never silent 200.
 - **File serving:** `/files/<path>` requires `@login_required`. Uses `send_from_directory` (not manual joins) to prevent path traversal.
 - **Image validation:** size check BEFORE `base64.b64decode`; decode with `base64.b64decode(data, validate=True)` (rejects malformed base64 cleanly before reaching PIL); PIL validates image content; `Image.MAX_IMAGE_PIXELS` set to 50,000,000 before any `Image.open()` to prevent decompression bomb attacks (a small compressed file that expands to gigabytes in RAM); path built from integer IDs + character-sanitised key only (alphanumeric, `-`, `_` only); max 20 images per log step; `images` field must be a `{str: str}` dict.
-- **Image atomicity:** all image files are saved before the DB transaction; if any save or the transaction fails, previously saved files are deleted to prevent disk orphans.
+- **Image atomicity:** all image files are saved before the JSONL append; if any save fails, previously saved files for that step are deleted to prevent disk orphans (no DB transaction involved).
 - **File cleanup on delete:** deleting a project or run removes the image directory from disk (`shutil.rmtree`) after the DB DELETE succeeds, preventing EBS volume fill-up.
 - **Input size limits:** project/run names ≤ 200 chars; metric/image key names non-empty, ≤ 200 chars; config blob ≤ 64 KB; step ≥ 0 and ≤ 10,000,000; all rejected with 400 if exceeded.
 - **Request body validation:** `get_json()` result must be a `dict`, not `None` — validate before any field access to avoid AttributeError 500s.

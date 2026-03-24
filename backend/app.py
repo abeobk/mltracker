@@ -52,6 +52,9 @@ def create_app(config=None):
     def spa(path):
         if path.startswith(('api/', 'auth/', 'files/', 'health')):
             abort(404)
+        # login.html served directly; everything else gets the SPA shell
+        if path == 'login.html':
+            return send_from_directory(app.static_folder, 'login.html')
         return send_from_directory(app.static_folder, 'index.html')
 
     # Catch-all JSON error handler
