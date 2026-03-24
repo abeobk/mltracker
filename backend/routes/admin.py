@@ -40,7 +40,7 @@ def list_users():
                      ELSE 0
                 END
             ), 0)                 AS total_run_seconds,
-            MAX(r.created_at)     AS last_active
+            MAX(COALESCE(r.finished_at, r.created_at)) AS last_active
         FROM users u
         LEFT JOIN projects p ON p.user_id = u.id
         LEFT JOIN runs r     ON r.project_id = p.id

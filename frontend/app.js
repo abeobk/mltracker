@@ -795,7 +795,7 @@ const App = defineComponent({
       const image_cards = [];
       for (const img_key of all_img_keys) {
         image_cards.push({
-          key:   `img::${img_key}`,
+          key:   img_key,
           label: img_key,
           runs:  runs.map((run, ri) => ({
             label:  run.name,
@@ -951,8 +951,8 @@ const App = defineComponent({
               sel_project_id: sel_project.value?.id ?? null,
               sel_run_id:     sel_run.value?.id ?? null,
               class: panel_open.value ? 'open' : '',
-              onSelectProject: id => { select_project(id); close_panel_on_mobile(); },
-              onSelectRun:     id => { select_run(id);     close_panel_on_mobile(); },
+              onSelectProject: proj       => { select_project(proj);       close_panel_on_mobile(); },
+              onSelectRun:     (proj, run) => { select_run(proj, run);     close_panel_on_mobile(); },
               onDeleteProject: delete_project,
               onDeleteRun:     delete_run,
             }),
