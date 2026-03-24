@@ -45,7 +45,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-_DEFAULT_HOST  = 'http://localhost:5000'
+_DEFAULT_HOST  = 'mltracker.abeobk.com'
 _CONFIG_FILE   = os.path.join(os.path.expanduser('~'), '.mltracker')
 
 # ---------------------------------------------------------------------------
