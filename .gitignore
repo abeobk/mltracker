@@ -63,3 +63,4 @@ $RECYCLE.BIN/
 *.bak
 *.orig
 flask.log
+.claude/
