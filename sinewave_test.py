@@ -8,9 +8,9 @@ import os
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
-import wandb_clone as wandb
+import mltracker as wandb
 
-KEY  = os.environ.get("WANDB_API_KEY", "59e28ac3da73af896d90a215155398af795a871cc12ae9a3e0606cf9d524c03c")
+KEY  = os.environ.get("WANDB_API_KEY", "54c939bed0f4aab8a4c5a216bf28082e544b9eb21ece952b69676c8673ed1f54")
 HOST = os.environ.get("WANDB_HOST", "http://localhost:5000")
 
 if not KEY:
