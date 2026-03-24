@@ -1,4 +1,4 @@
-# CLAUDE.md — WandB Clone
+# CLAUDE.md — MLTracker
 
 <!-- =================================================================
      PROTECTED — DO NOT EDIT THIS SECTION WITHOUT EXPLICIT USER APPROVAL
@@ -18,7 +18,7 @@
 
 ## Goal
 
-A self-hosted **WandB clone** — a web platform to track ML experiments across multiple projects and runs. Users log scalar metrics and images from training scripts via a REST API; the dashboard visualises them in real time.
+A self-hosted **MLTracker** — a web platform to track ML experiments across multiple projects and runs. Users log scalar metrics and images from training scripts via a REST API; the dashboard visualises them in real time.
 
 ---
 
@@ -58,7 +58,7 @@ Dark by default; `body.light` class toggles light mode. All colours via CSS cust
 ## Project Structure
 
 ```
-wandb_clone/
+mltracker/
 ├── backend/
 │   ├── app.py              Flask app factory + Gunicorn entry
 │   ├── auth.py             Google OAuth + API key middleware
@@ -76,8 +76,8 @@ wandb_clone/
 │   ├── style.css           Layout and theming
 │   └── app.js              Vue 3 app — all components
 ├── data/
-│   ├── wandb.db            SQLite database
-│   └── mywandb/            Run data
+│   ├── mltracker.db            SQLite database
+│   └── mltracker/            Run data
 │       └── <project_name>/<run_name>/
 │           ├── metrics.jsonl
 │           └── images/<step>_<key>.png
@@ -137,7 +137,7 @@ runs        id, project_id → projects ON DELETE CASCADE, name, status (running
 
 ### JSONL — scalar metrics + image refs
 
-Each run: `data/mywandb/<project_name>/<run_name>/metrics.jsonl` (names sanitised via `_safe_name()`).
+Each run: `data/mltracker/<project_name>/<run_name>/metrics.jsonl` (names sanitised via `_safe_name()`).
 
 One JSON line per committed `log()` call:
 ```json
@@ -308,7 +308,7 @@ Merged step list: `[...new Set(runs.flatMap(r => r.images.map(x => x.step)))].so
 
 ---
 
-## Client SDK (`wandb_clone.py`)
+## Client SDK (`mltracker.py`)
 
 Single file, only `requests` dependency.
 
@@ -362,7 +362,7 @@ run = wandb.resume(project="mnist", name="exp_a3f2b1")
 - **SPA catch-all guard:** abort(404) for `api/`, `auth/`, `files/`, `health` prefixes.
 - **Rate limiting:** `flask-limiter` with **Redis backend** (not in-memory — in-memory is per-worker, effective limit = 4× configured with 4 workers). Apply to `/log`, `POST /runs`, `/auth/regenerate-key`.
 - **Cascade deletes:** `ON DELETE CASCADE` on all FK relationships.
-- **Secrets:** in `/etc/wandb_clone.env` (mode 600, root-owned), loaded via systemd `EnvironmentFile=`. Never in `/etc/environment` (world-readable).
+- **Secrets:** in `/etc/mltracker.env` (mode 600, root-owned), loaded via systemd `EnvironmentFile=`. Never in `/etc/environment` (world-readable).
 - **OAuth state:** `authlib` validates state automatically — do not bypass.
 - **CDN SRI:** every CDN resource has pinned exact version + `integrity="sha384-..."` + `crossorigin="anonymous"`. Note: SRI in import maps requires Chrome 112+ / Firefox 126+.
 - **API key storage:** stored plain (known tradeoff for personal tool). If DB leaks, all keys exposed — mitigated by mode-600 env file and dedicated EBS volume.
@@ -381,22 +381,22 @@ run = wandb.resume(project="mnist", name="exp_a3f2b1")
 - Gunicorn: `bind=127.0.0.1:8000`, `workers=4`, `worker_class=sync`, `timeout=120`
 - Nginx: serves `frontend/` static; proxies `/(api|auth|files|health)/` to `:8000`; `client_max_body_size 20m`
 - HTTPS via Let's Encrypt (`certbot --nginx`); set `SESSION_COOKIE_SECURE=true` after
-- Systemd service with `EnvironmentFile=/etc/wandb_clone.env`, `Restart=on-failure`, `PrivateTmp=true`
+- Systemd service with `EnvironmentFile=/etc/mltracker.env`, `Restart=on-failure`, `PrivateTmp=true`
 
-**Secrets file `/etc/wandb_clone.env` (mode 600):**
+**Secrets file `/etc/mltracker.env` (mode 600):**
 ```
 SECRET_KEY=...
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
-DB_PATH=/mnt/wandb_data/wandb.db
+DB_PATH=/mnt/wandb_data/mltracker.db
 FILES_DIR=/mnt/wandb_data/files
 SESSION_COOKIE_SECURE=true
 ```
 
 **Maintenance:**
-- Update: `git pull` → `pip install -r requirements.txt` → `systemctl restart wandb_clone`
-- Logs: `journalctl -u wandb_clone -f`, `/var/log/gunicorn/`, `/var/log/nginx/`
-- DB backup: `sqlite3 wandb.db ".backup '/mnt/backup/wandb_$(date +%Y%m%d).db'"` — backup target must be a **separate EBS volume or S3**, not the same data volume
+- Update: `git pull` → `pip install -r requirements.txt` → `systemctl restart mltracker`
+- Logs: `journalctl -u mltracker -f`, `/var/log/gunicorn/`, `/var/log/nginx/`
+- DB backup: `sqlite3 mltracker.db ".backup '/mnt/backup/wandb_$(date +%Y%m%d).db'"` — backup target must be a **separate EBS volume or S3**, not the same data volume
 
 > ⚠️ **Log rotation required** — without logrotate, Gunicorn logs fill the root volume. Rotate daily, keep 14 days compressed, use `copytruncate`.
 
@@ -409,7 +409,7 @@ SESSION_COOKIE_SECURE=true
 [x] Phase 2: auth.py + Google OAuth               → /auth/me returns user + api_key
 [x] Phase 3: storage.py + all API routes          → full log/query/delete cycle works
 [x] Phase 4: frontend (index.html, style.css, app.js) → dashboard shows charts + images
-[x] Phase 5: wandb_clone.py SDK                   → end-to-end script → dashboard shows data
+[x] Phase 5: mltracker.py SDK                   → end-to-end script → dashboard shows data
 [ ] Deployment: EC2 + Gunicorn + Nginx + HTTPS
 ```
 

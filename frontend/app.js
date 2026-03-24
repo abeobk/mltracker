@@ -33,7 +33,7 @@ const TopBar = defineComponent({
     return () => h('div', { class: 'topbar' }, [
       h('a', { class: 'logo', href: '/' }, [
         h('i', { class: 'fa-solid fa-chart-line' }),
-        'WandB Clone',
+        'MLTracker',
       ]),
       h('div', { class: 'spacer' }),
       props.user ? [

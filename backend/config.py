@@ -4,8 +4,8 @@ import os
 class Config:
     SECRET_KEY = os.environ['SECRET_KEY']  # raises at startup if missing
 
-    DB_PATH    = os.environ.get('DB_PATH',    os.path.join(os.path.dirname(__file__), '..', 'data', 'wandb.db'))
-    FILES_DIR  = os.environ.get('FILES_DIR',  os.path.join(os.path.dirname(__file__), '..', 'data', 'mywandb'))
+    DB_PATH    = os.environ.get('DB_PATH',    os.path.join(os.path.dirname(__file__), '..', 'data', 'mltracker.db'))
+    FILES_DIR  = os.environ.get('FILES_DIR',  os.path.join(os.path.dirname(__file__), '..', 'data', 'mltracker'))
 
     GOOGLE_CLIENT_ID     = os.environ.get('GOOGLE_CLIENT_ID',     'fake')
     GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', 'fake')

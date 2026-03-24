@@ -1,5 +1,5 @@
 """
-WandB Clone client SDK.
+MLTracker client SDK.
 
 Single-file; only stdlib + requests.
 

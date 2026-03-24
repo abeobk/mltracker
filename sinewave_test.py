@@ -1,5 +1,5 @@
 """
-Sine wave test — logs 4 metrics over 200 steps using the WandB Clone SDK.
+Sine wave test — logs 4 metrics over 200 steps using the MLTracker SDK.
 Run after the server is up: python sinewave_test.py
 """
 import math
@@ -42,6 +42,12 @@ for step in range(200):
         arr = np.random.randint(0, 256, (100, 100, 3), dtype=np.uint8)
         metrics["random_img"] = wandb.Image(arr)
     run.log(metrics, step=step)
+    #simulate crash at step 120
+    if step == 120:
+        #crash the process
+        
+        
+        break
     if step % 50 == 0:
         print(f"  step {step}/200 ...")
     #delay 100ms

@@ -442,8 +442,8 @@ session cookies are sent over plain HTTP even in production.
 
 ### S-39 · Store secrets in a dedicated env file, not `/etc/environment`
 `/etc/environment` is world-readable by default. Instead:
-- Create `/etc/wandb_clone.env` owned by root, mode 600
-- Reference it in the systemd unit via `EnvironmentFile=/etc/wandb_clone.env`
+- Create `/etc/mltracker.env` owned by root, mode 600
+- Reference it in the systemd unit via `EnvironmentFile=/etc/mltracker.env`
 - Only root and the service process can read it
 
 ---
@@ -496,7 +496,7 @@ except Exception:
 Without this, a partial failure leaves orphaned image files on disk that are never cleaned up.
 
 ### S-48 · Delete run/project files from disk when deleting via API
-The DB cascade removes run/project rows, but the `data/mywandb/` directories remain.
+The DB cascade removes run/project rows, but the `data/mltracker/` directories remain.
 After the DB DELETE, call the storage helpers:
 ```python
 delete_run_files(project_name, run_name)      # shutil.rmtree(run_dir)
@@ -622,7 +622,7 @@ A run logging 200 steps × 1 commit = 2-4 seconds of wall time just on disk sync
 
 Instead, write each log step as one JSON line appended to a per-run file:
 ```
-data/mywandb/<project_name>/<run_name>/metrics.jsonl
+data/mltracker/<project_name>/<run_name>/metrics.jsonl
 ```
 (Names are sanitised with `_safe_name()` — alphanumeric, `-`, `_`, `.` only.)
 

@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS runs (
     UNIQUE(project_id, name)
 );
 
--- Images are stored as files in mywandb/<project_name>/<run_name>/images/
+-- Images are stored as files in mltracker/<project_name>/<run_name>/images/
 -- and referenced inline in metrics.jsonl as {"type": "image", "name": "<filename>"}
 -- No SQLite table needed for images.
 """
