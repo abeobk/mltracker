@@ -111,11 +111,15 @@ case "$DISTRO" in
     ;;
   al2023)
     dnf update -q -y
+    # AL2023 ships curl-minimal which conflicts with the full curl package.
+    # curl-minimal is sufficient; skip curl to avoid the conflict.
     dnf install -y -q \
         python3.11 python3.11-pip \
         nginx redis6 \
         certbot python3-certbot-nginx \
-        git curl jq logrotate
+        jq logrotate
+    # git is pre-installed on AL2023 AMIs but install to be safe
+    dnf install -y -q git || true
     # Make python3.11 available as the venv binary
     alternatives --install /usr/bin/python3.11 python3.11 "$(command -v python3.11)" 10 || true
     ;;
@@ -127,7 +131,7 @@ case "$DISTRO" in
         python38 python38-pip \
         nginx redis \
         certbot python3-certbot-nginx \
-        git curl jq logrotate
+        git jq logrotate
     # Point python3.11 variable to available python3
     PYTHON_BIN="python3.8"
     warn "Amazon Linux 2 does not ship Python 3.11 — using Python 3.8. Consider upgrading to AL2023."
