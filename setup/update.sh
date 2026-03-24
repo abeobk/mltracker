@@ -39,6 +39,14 @@ sudo -u "$REPO_USER" "$VENV_DIR/bin/pip" install --quiet -r "$REPO_DIR/backend/r
 # ── Reload systemd in case the service file changed ──────────────────────────
 systemctl daemon-reload
 
+# ── Reload Nginx config ───────────────────────────────────────────────────────
+info "Reloading nginx..."
+if nginx -t 2>/dev/null; then
+    systemctl reload nginx
+else
+    warn "nginx config test failed — skipping reload. Run 'nginx -t' to debug."
+fi
+
 # ── Restart MLTracker ─────────────────────────────────────────────────────────
 info "Restarting mltracker..."
 systemctl restart mltracker
