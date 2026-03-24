@@ -141,6 +141,18 @@ watch(() => `${proj?.id ?? ''}_${run?.id ?? ''}`, reset)
 ### Guard `save_layout()` against empty card order
 Selection change resets `card_order = []`, then the watcher fires immediately. Without `if (!card_order.value.length) return`, it overwrites the persisted layout with an empty one.
 
+### Project dashboard needs its own refresh path — run refresh won't cover it
+`_do_select_run` starts `_refresh_run_id`. `_do_select_project` starts `_refresh_proj_id`. They are mutually exclusive. Project refresh reloads `proj.runs` each tick (to catch status changes) then calls `load_project_dash`. Without this, a project view never updates while runs are active.
+
+### `main-panel` needs `overflow: auto` (both axes) and `cards-grid` needs `min-width: min-content`
+`overflow-y: auto` alone clips groups that grow wider than the panel — no horizontal scroll appears. `min-width: min-content` on `.cards-grid` lets the flex container expand beyond the panel so oversized groups are scrollable, not clipped.
+
+### Chart.js animation should always be disabled — it fires on every data update
+`animation: { duration: 300 }` re-animates on every refresh tick, making charts visually noisy. Set `animation: false` unconditionally.
+
+### Card collapse state lives in `card_sizes[key].collapsed` — no separate store needed
+`toggle_collapse(key)` spreads the existing size entry and flips `collapsed`. `save_layout` persists it automatically since it serialises all of `card_sizes`. Body and resize handle are conditionally rendered with `!props.collapsed`.
+
 ### Always clear the refresh timer on selection change and `onUnmounted`
 Forgetting causes overlapping timers that escalate API request rate as the user clicks. Use `setTimeout` rescheduled each tick (not `setInterval`) — naturally applies variable delay.
 
@@ -153,7 +165,7 @@ Project view: one card per image key; `runs` has one entry per project run, with
 ### localStorage keys: `wandb_layout_run_<id>`, `wandb_layout_proj_<id>`, `wandb_last_sel`
 
 ### Metric keys with `/` are grouped into a `MetricGroup` container at render time
-`compute_units(card_order)` partitions flat keys by first path segment: `train/loss` and `train/acc` become a group with `unit_key = 'group::train'`. `card_order` stays flat (individual keys) — groups are derived, never stored. Group widths are stored in `card_sizes['group::train'] = {w}`. Child cards inside a group receive `width: null` (flex fills them evenly). Drag operates on unit keys, not flat keys — `start_drag` moves all keys of the dragged unit.
+`compute_units(card_order)` partitions flat keys by first path segment: `train/loss` and `train/acc` become a group with `unit_key = 'group::train'`. `card_order` stays flat — groups are derived, never stored. Group size is `card_sizes['group::train'] = {w, h}` where `h` is a uniform child card height (all children share it). Child cards receive `width: null` (flex fills evenly) and `height: group_sizes.h`. Group resize handle is `se-resize` (both axes) — x changes `w`, y changes `h` which propagates to all children. Drag operates on unit keys — `start_drag` moves all flat keys of the unit.
 
 ---
 

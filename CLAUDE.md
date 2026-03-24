@@ -284,7 +284,7 @@ App
 - Layout saved to `localStorage` as `{order, sizes}` under key `wandb_layout_run_<id>` or `wandb_layout_proj_<id>`
 - Restored on first data arrival for a selection
 
-**Path grouping:** metric/image keys containing `/` are grouped at render time by `compute_units(card_order)`. Keys sharing a prefix (e.g. `train/loss`, `train/acc`) render inside a `MetricGroup` container. `card_order` stays flat — groups are derived, never stored. Group width stored as `card_sizes['group::prefix'] = {w}`. Child cards get `width: null` (flex fills them evenly, wrapping on overflow). Drag reorders whole units — `start_drag` moves all flat keys of the unit together.
+**Path grouping:** metric/image keys containing `/` are grouped at render time by `compute_units(card_order)`. Keys sharing a prefix (e.g. `train/loss`, `train/acc`) render inside a `MetricGroup` container. `card_order` stays flat — groups are derived, never stored. Group size stored as `card_sizes['group::prefix'] = {w, h}` where `h` is the uniform child card height. Child cards get `width: null` (flex fills them evenly, wrapping on overflow) and `height: group_sizes.h`. Group resize handle tracks both axes (se-resize) — width controls container width, height controls all child card heights uniformly. Drag reorders whole units — `start_drag` moves all flat keys of the unit together.
 
 > ⚠️ **Watcher must use string key, not array:**
 > ```js
@@ -302,6 +302,7 @@ App
 
 **Drag reorder:** mousedown on drag bar → global mouseup reorders `card_order`.
 **Resize:** mousedown on resize handle → track delta → update `card_sizes[key]` (min w:280, min h:150).
+**Collapse:** chevron button in every card drag bar and group header toggles `card_sizes[key].collapsed`. Body and resize handle are conditionally rendered (`!collapsed`). State persisted automatically via `save_layout`.
 **Default sizes:** metric chart `420×220px`, image card `420×280px`. Minimum after resize: `280px` wide, `150px` tall.
 **Selection persistence:** on load, URL query param `?run=<name>` takes priority — scans all projects for a matching run name and selects it directly. Falls back to `localStorage` key `wandb_last_sel: {proj_id, run_id}` if no URL param is present.
 
@@ -326,6 +327,10 @@ Merged step list: `[...new Set(runs.flatMap(r => r.images.map(x => x.step)))].so
 ### Auto-refresh
 
 `setTimeout`-rescheduled (not `setInterval`). 5s base; exponential backoff on failures up to 60s; reset to 5s on success. **Always cleared** on selection change or unmount.
+
+Two refresh modes — `_refresh_run_id` and `_refresh_proj_id` (mutually exclusive):
+- **Run view:** started by `_do_select_run` when `run.status === 'running'`. Each tick: reload run metadata + `load_run_dash`. Stops when status leaves `running`.
+- **Project view:** started by `_do_select_project` when any run is `running`. Each tick: reload `proj.runs` then `load_project_dash`. Stops when no run remains `running`.
 
 **Image auto-advance:** `ImageSlider` watches total image count; when it increases (new step logged), `_idx` jumps to the last step automatically.
 

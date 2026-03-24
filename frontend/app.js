@@ -273,7 +273,7 @@ const MetricChart = defineComponent({
           })),
         },
         options: {
-          animation: props.is_live ? false : { duration: 300 },
+          animation: false,
           responsive: true,
           maintainAspectRatio: false,
           parsing: false,
@@ -394,8 +394,8 @@ const ImageSlider = defineComponent({
 // DashCard  — draggable + resizable wrapper
 // ---------------------------------------------------------------------------
 const DashCard = defineComponent({
-  props: ['card_label', 'is_metric', 'is_dragging', 'is_drag_over', 'width', 'height', 'downsampled'],
-  emits: ['drag-start', 'drag-enter', 'resize'],
+  props: ['card_label', 'is_metric', 'is_dragging', 'is_drag_over', 'width', 'height', 'downsampled', 'collapsed'],
+  emits: ['drag-start', 'drag-enter', 'resize', 'toggle-collapse'],
   setup(props, { emit, slots }) {
     function on_resize_mousedown(e) {
       if (e.button !== 0) return;
@@ -438,11 +438,19 @@ const DashCard = defineComponent({
           ? h('span', { class: 'downsampled-badge' }, 'downsampled') : null,
         !props.is_metric
           ? h('i', { class: 'fa-solid fa-image card-type-icon', title: 'Image' }) : null,
+        h('button', {
+          class: 'card-collapse-btn',
+          title: props.collapsed ? 'Expand' : 'Collapse',
+          onMousedown: e => e.stopPropagation(),
+          onClick: () => emit('toggle-collapse'),
+        }, h('i', { class: `fa-solid fa-chevron-${props.collapsed ? 'down' : 'up'}` })),
       ]),
-      h('div', { class: 'card-body', style: { height: props.height + 'px' } },
-        slots.default?.()
-      ),
-      h('div', { class: 'card-resize-handle', onMousedown: on_resize_mousedown }),
+      !props.collapsed
+        ? h('div', { class: 'card-body', style: { height: props.height + 'px' } }, slots.default?.())
+        : null,
+      !props.collapsed
+        ? h('div', { class: 'card-resize-handle', onMousedown: on_resize_mousedown })
+        : null,
     ]);
   },
 });
@@ -451,18 +459,21 @@ const DashCard = defineComponent({
 // MetricGroup  — resizable container for path-grouped metric/image cards
 // ---------------------------------------------------------------------------
 const MetricGroup = defineComponent({
-  props: ['prefix', 'width', 'is_dragging', 'is_drag_over'],
-  emits: ['drag-start', 'drag-enter', 'resize-group'],
+  props: ['prefix', 'width', 'height', 'is_dragging', 'is_drag_over', 'collapsed'],
+  emits: ['drag-start', 'drag-enter', 'resize-group', 'toggle-collapse'],
   setup(props, { emit, slots }) {
     function on_resize_mousedown(e) {
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
-      const start_x = e.clientX;
-      const start_w = props.width;
+      const start_x = e.clientX, start_y = e.clientY;
+      const start_w = props.width,  start_h = props.height;
       document.body.style.userSelect = 'none';
       const on_move = ev => {
-        emit('resize-group', Math.max(480, start_w + ev.clientX - start_x));
+        emit('resize-group', {
+          w: Math.max(480, start_w + ev.clientX - start_x),
+          h: Math.max(150, start_h + ev.clientY - start_y),
+        });
       };
       const on_up = () => {
         document.body.style.userSelect = '';
@@ -489,9 +500,19 @@ const MetricGroup = defineComponent({
         h('i', { class: 'fa-solid fa-grip-vertical card-grip' }),
         h('i', { class: 'fa-solid fa-folder-open', style: 'font-size:11px;color:var(--text-dim)' }),
         h('span', { class: 'card-key-label' }, props.prefix),
+        h('button', {
+          class: 'card-collapse-btn',
+          title: props.collapsed ? 'Expand' : 'Collapse',
+          onMousedown: e => e.stopPropagation(),
+          onClick: () => emit('toggle-collapse'),
+        }, h('i', { class: `fa-solid fa-chevron-${props.collapsed ? 'down' : 'up'}` })),
       ]),
-      h('div', { class: 'metric-group-body' }, slots.default?.()),
-      h('div', { class: 'card-resize-handle', onMousedown: on_resize_mousedown }),
+      !props.collapsed
+        ? h('div', { class: 'metric-group-body' }, slots.default?.())
+        : null,
+      !props.collapsed
+        ? h('div', { class: 'card-resize-handle', onMousedown: on_resize_mousedown })
+        : null,
     ]);
   },
 });
@@ -540,7 +561,7 @@ const MainPanel = defineComponent({
     }
 
     function default_size(key) {
-      if (key.startsWith('group::')) return { w: DEFAULT_W * 2 + 12 };
+      if (key.startsWith('group::')) return { w: DEFAULT_W * 2 + 12, h: DEFAULT_CHART_H };
       const is_metric = key in (props.dash.metrics || {});
       return { w: DEFAULT_W, h: is_metric ? DEFAULT_CHART_H : DEFAULT_IMAGE_H };
     }
@@ -636,6 +657,11 @@ const MainPanel = defineComponent({
       card_sizes.value = { ...card_sizes.value, [key]: dims };
     }
 
+    function toggle_collapse(key) {
+      const cur = card_sizes.value[key] || default_size(key);
+      card_sizes.value = { ...card_sizes.value, [key]: { ...cur, collapsed: !cur.collapsed } };
+    }
+
     // ── Render ──────────────────────────────────────────────────────
     return () => {
       if (props.is_loading) {
@@ -666,23 +692,25 @@ const MainPanel = defineComponent({
       const is_live  = props.sel_run?.status === 'running';
       const img_map  = Object.fromEntries((image_cards || []).map(c => [c.key, c]));
 
-      function render_card(key, { width, label_override } = {}) {
+      function render_card(key, { width, height, label_override } = {}) {
         const is_metric = key in (metrics || {});
         const img_card  = img_map[key];
         const label     = label_override ?? (img_card?.label ?? key);
         const sizes     = card_sizes.value[key] || default_size(key);
         return h(DashCard, {
           key,
-          card_label:   label,
+          card_label:       label,
           is_metric,
-          is_dragging:  false,
-          is_drag_over: false,
-          width:        width !== undefined ? width : sizes.w,
-          height:       sizes.h,
-          downsampled:  is_metric && downsampled,
-          onDragStart:  () => {},
-          onDragEnter:  () => {},
-          onResize:     dims => on_resize(key, width !== undefined ? { h: dims.h } : dims),
+          is_dragging:      false,
+          is_drag_over:     false,
+          width:            width !== undefined ? width : sizes.w,
+          height:           height !== undefined ? height : sizes.h,
+          collapsed:        !!sizes.collapsed,
+          downsampled:      is_metric && downsampled,
+          onDragStart:      () => {},
+          onDragEnter:      () => {},
+          onResize:         dims => on_resize(key, { ...sizes, ...dims }),
+          onToggleCollapse: () => toggle_collapse(key),
         }, {
           default: () => is_metric
             ? h(MetricChart, { metric_key: key, datasets: (metrics || {})[key] || [], is_live })
@@ -697,16 +725,18 @@ const MainPanel = defineComponent({
           const sizes = card_sizes.value[key] || default_size(key);
           return h(DashCard, {
             key,
-            card_label:   img_map[key]?.label ?? key,
-            is_metric:    key in (metrics || {}),
-            is_dragging:  dragging_key.value  === unit.unit_key,
-            is_drag_over: drag_over_key.value === unit.unit_key,
-            width:        sizes.w,
-            height:       sizes.h,
-            downsampled:  (key in (metrics || {})) && downsampled,
-            onDragStart:  () => start_drag(unit.unit_key),
-            onDragEnter:  () => on_drag_enter(unit.unit_key),
-            onResize:     dims => on_resize(key, dims),
+            card_label:       img_map[key]?.label ?? key,
+            is_metric:        key in (metrics || {}),
+            is_dragging:      dragging_key.value  === unit.unit_key,
+            is_drag_over:     drag_over_key.value === unit.unit_key,
+            width:            sizes.w,
+            height:           sizes.h,
+            collapsed:        !!sizes.collapsed,
+            downsampled:      (key in (metrics || {})) && downsampled,
+            onDragStart:      () => start_drag(unit.unit_key),
+            onDragEnter:      () => on_drag_enter(unit.unit_key),
+            onResize:         dims => on_resize(key, { ...sizes, ...dims }),
+            onToggleCollapse: () => toggle_collapse(key),
           }, {
             default: () => key in (metrics || {})
               ? h(MetricChart, { metric_key: key, datasets: (metrics || {})[key] || [], is_live })
@@ -717,18 +747,22 @@ const MainPanel = defineComponent({
         // Group
         const gk          = unit.unit_key;
         const group_sizes = card_sizes.value[gk] || default_size(gk);
+        const child_h     = group_sizes.h ?? DEFAULT_CHART_H;
         const children    = unit.keys.map(key =>
-          render_card(key, { width: null, label_override: key.slice(unit.prefix.length + 1) })
+          render_card(key, { width: null, height: child_h, label_override: key.slice(unit.prefix.length + 1) })
         );
         return h(MetricGroup, {
-          key:          gk,
-          prefix:       unit.prefix,
-          width:        group_sizes.w,
-          is_dragging:  dragging_key.value  === gk,
-          is_drag_over: drag_over_key.value === gk,
-          onDragStart:  () => start_drag(gk),
-          onDragEnter:  () => on_drag_enter(gk),
-          onResizeGroup: w => on_resize(gk, { w }),
+          key:              gk,
+          prefix:           unit.prefix,
+          width:            group_sizes.w,
+          height:           child_h,
+          collapsed:        !!group_sizes.collapsed,
+          is_dragging:      dragging_key.value  === gk,
+          is_drag_over:     drag_over_key.value === gk,
+          onDragStart:      () => start_drag(gk),
+          onDragEnter:      () => on_drag_enter(gk),
+          onResizeGroup:    dims => on_resize(gk, { ...group_sizes, ...dims }),
+          onToggleCollapse: () => toggle_collapse(gk),
         }, { default: () => children });
       });
 

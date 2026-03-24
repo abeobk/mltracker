@@ -291,6 +291,21 @@ button:hover { background: #2563eb !important; border-color: #2563eb !important;
   flex-shrink: 0;
 }
 
+/* ── Collapse button (rightmost item in drag bar) ────────────────── */
+.card-collapse-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 10px;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 3px;
+  line-height: 1;
+}
+.card-collapse-btn:hover { color: var(--text); background: var(--panel2); }
+
 /* ── Card body (content area, height set inline) ─────────────────── */
 .card-body {
   overflow: hidden;
@@ -377,18 +392,8 @@ button:hover { background: #2563eb !important; border-color: #2563eb !important;
   width: auto !important; /* override inline width — flex controls sizing */
 }
 
-/* Group resize handle only moves horizontally */
-.metric-group > .card-resize-handle { cursor: e-resize; }
-.metric-group > .card-resize-handle::before {
-  bottom: 5px; right: 2px;
-  width: 10px; height: 1.5px;
-  transform: rotate(0deg);
-}
-.metric-group > .card-resize-handle::after {
-  bottom: 9px; right: 2px;
-  width: 10px; height: 1.5px;
-  transform: rotate(0deg);
-}
+/* Group resize handle: both axes (se-resize, same visual as card) */
+.metric-group > .card-resize-handle { cursor: se-resize; }
 
 /* ===================================================================
    Chart canvas  (fills .card-body height via height:100%)
