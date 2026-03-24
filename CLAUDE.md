@@ -341,7 +341,7 @@ Merged step list: `[...new Set(runs.flatMap(r => r.images.map(x => x.step)))].so
 
 ---
 
-## Client SDK (`mltracker.py`)
+## Client SDK (`sdk/mltracker.py`)
 
 Single file, only `requests` dependency.
 
@@ -459,7 +459,7 @@ SESSION_COOKIE_SECURE=true
 [x] Phase 2: auth.py + Google OAuth               → /auth/me returns user + api_key
 [x] Phase 3: storage.py + all API routes          → full log/query/delete cycle works
 [x] Phase 4: frontend (index.html, style.css, app.js) → dashboard shows charts + images
-[x] Phase 5: mltracker.py SDK                   → end-to-end script → dashboard shows data
+[x] Phase 5: sdk/mltracker.py SDK                   → end-to-end script → dashboard shows data
 [x] Deployment: EC2 setup scripts (bootstrap, certbot, update) — verified working on AL2023
 ```
 

@@ -5,8 +5,8 @@ Single-file; only stdlib + requests.
 
 Credentials are read from environment variables — never hardcode them:
 
-    export WANDB_API_KEY=<your-key>
-    export WANDB_HOST=http://localhost:5000   # optional, defaults to localhost:5000
+    export MLTRACKER_API_KEY=<your-key>
+    export MLTRACKER_HOST=http://localhost:5000   # optional, defaults to localhost:5000
 
 Usage:
     # New run — suffix is auto-generated and appended to the name
@@ -45,7 +45,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-_DEFAULT_HOST  = 'mltracker.abeobk.com'
+_DEFAULT_HOST  = 'https://mltracker.abeobk.com'
 _CONFIG_FILE   = os.path.join(os.path.expanduser('~'), '.mltracker')
 
 # ---------------------------------------------------------------------------
@@ -104,14 +104,14 @@ def _resolve_credentials(api_key: Optional[str], host: Optional[str]):
 
     Priority:
       1. Explicit argument passed by the caller
-      2. WANDB_API_KEY / WANDB_HOST environment variables
+      2. MLTRACKER_API_KEY / MLTRACKER_HOST environment variables
       3. Saved credentials in ~/.mltracker
       4. Interactive prompt (saved for future use)
     """
     cfg = _load_config()
 
-    resolved_key  = api_key or os.environ.get('WANDB_API_KEY', '') or cfg.get('WANDB_API_KEY', '')
-    resolved_host = (host or os.environ.get('WANDB_HOST', '') or cfg.get('WANDB_HOST', _DEFAULT_HOST)).rstrip('/')
+    resolved_key  = api_key or os.environ.get('MLTRACKER_API_KEY', '') or cfg.get('MLTRACKER_API_KEY', '')
+    resolved_host = (host or os.environ.get('MLTRACKER_HOST', '') or cfg.get('MLTRACKER_HOST', _DEFAULT_HOST)).rstrip('/')
 
     if not resolved_key:
         print("MLTracker: no API key found.")
@@ -123,13 +123,13 @@ def _resolve_credentials(api_key: Optional[str], host: Optional[str]):
         if not resolved_key:
             raise WandBError("API key is required.")
 
-        if not host and not os.environ.get('WANDB_HOST'):
+        if not host and not os.environ.get('MLTRACKER_HOST'):
             entered_host = input(f"  Server URL [{_DEFAULT_HOST}]: ").strip()
             if entered_host:
                 resolved_host = entered_host.rstrip('/')
 
-        cfg['WANDB_API_KEY'] = resolved_key
-        cfg['WANDB_HOST']    = resolved_host
+        cfg['MLTRACKER_API_KEY'] = resolved_key
+        cfg['MLTRACKER_HOST']    = resolved_host
         _save_config(cfg)
         print(f"  Credentials saved to {_CONFIG_FILE}")
 
@@ -464,8 +464,8 @@ def init(
     Save it — you'll need it to resume this run later.
 
     Credentials are read from environment variables if not passed explicitly:
-        WANDB_API_KEY — required
-        WANDB_HOST    — optional, defaults to http://localhost:5000
+        MLTRACKER_API_KEY — required
+        MLTRACKER_HOST    — optional, defaults to http://localhost:5000
     """
     api_key, host = _resolve_credentials(api_key, host)
     suffix        = secrets.token_hex(3)          # 6-char hex, e.g. "a3f2b1"
@@ -488,8 +488,8 @@ def resume(
     and returns a Run object ready for logging.
 
     Credentials are read from environment variables if not passed explicitly:
-        WANDB_API_KEY — required
-        WANDB_HOST    — optional, defaults to http://localhost:5000
+        MLTRACKER_API_KEY — required
+        MLTRACKER_HOST    — optional, defaults to http://localhost:5000
     """
     api_key, host = _resolve_credentials(api_key, host)
     session       = _make_session(api_key)
