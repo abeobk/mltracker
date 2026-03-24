@@ -1,6 +1,9 @@
 # ── Test scripts (may contain hardcoded API keys) ────────────────────────────
 test/
 
+# ── SDK saved credentials ────────────────────────────────────────────────────
+.mltracker
+
 # ── Secrets & environment ─────────────────────────────────────────────────────
 .env
 .env.*

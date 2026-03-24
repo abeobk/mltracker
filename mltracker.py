@@ -45,7 +45,8 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-_DEFAULT_HOST = 'http://localhost:5000'
+_DEFAULT_HOST  = 'http://localhost:5000'
+_CONFIG_FILE   = os.path.join(os.path.expanduser('~'), '.mltracker')
 
 # ---------------------------------------------------------------------------
 # Module-level crash / interrupt handling
@@ -69,23 +70,69 @@ def _global_excepthook(exc_type, exc_val, exc_tb):
 sys.excepthook = _global_excepthook
 
 
+def _load_config() -> dict:
+    """Load saved credentials from ~/.mltracker (KEY=VALUE format)."""
+    cfg = {}
+    if os.path.isfile(_CONFIG_FILE):
+        try:
+            with open(_CONFIG_FILE, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if '=' in line and not line.startswith('#'):
+                        k, _, v = line.partition('=')
+                        cfg[k.strip()] = v.strip()
+        except OSError:
+            pass
+    return cfg
+
+
+def _save_config(cfg: dict) -> None:
+    """Persist credentials to ~/.mltracker (mode 600)."""
+    try:
+        with open(_CONFIG_FILE, 'w') as f:
+            f.write('# MLTracker credentials — do not share this file\n')
+            for k, v in cfg.items():
+                f.write(f'{k}={v}\n')
+        os.chmod(_CONFIG_FILE, 0o600)
+    except OSError:
+        pass
+
+
 def _resolve_credentials(api_key: Optional[str], host: Optional[str]):
     """
-    Return (api_key, host), reading from environment variables if not supplied.
+    Return (api_key, host).
 
     Priority:
       1. Explicit argument passed by the caller
       2. WANDB_API_KEY / WANDB_HOST environment variables
+      3. Saved credentials in ~/.mltracker
+      4. Interactive prompt (saved for future use)
     """
-    resolved_key  = api_key or os.environ.get('WANDB_API_KEY', '')
-    resolved_host = (host or os.environ.get('WANDB_HOST', _DEFAULT_HOST)).rstrip('/')
+    cfg = _load_config()
+
+    resolved_key  = api_key or os.environ.get('WANDB_API_KEY', '') or cfg.get('WANDB_API_KEY', '')
+    resolved_host = (host or os.environ.get('WANDB_HOST', '') or cfg.get('WANDB_HOST', _DEFAULT_HOST)).rstrip('/')
+
     if not resolved_key:
-        raise WandBError(
-            "No API key found. Set the WANDB_API_KEY environment variable:\n"
-            "  Windows : set WANDB_API_KEY=<your-key>\n"
-            "  Linux/Mac: export WANDB_API_KEY=<your-key>\n"
-            "Or pass api_key= explicitly to init() / resume()."
-        )
+        print("MLTracker: no API key found.")
+        print(f"  Open your dashboard and copy the API key from the top bar.")
+        try:
+            resolved_key = input("  Paste API key: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            resolved_key = ''
+        if not resolved_key:
+            raise WandBError("API key is required.")
+
+        if not host and not os.environ.get('WANDB_HOST'):
+            entered_host = input(f"  Server URL [{_DEFAULT_HOST}]: ").strip()
+            if entered_host:
+                resolved_host = entered_host.rstrip('/')
+
+        cfg['WANDB_API_KEY'] = resolved_key
+        cfg['WANDB_HOST']    = resolved_host
+        _save_config(cfg)
+        print(f"  Credentials saved to {_CONFIG_FILE}")
+
     return resolved_key, resolved_host
 
 
