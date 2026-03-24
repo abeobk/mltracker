@@ -79,11 +79,14 @@ Open `http://localhost:5000` in your browser and sign in with Google.
 ### Log your first run
 
 ```bash
-pip install requests pillow numpy   # SDK dependencies
-export WANDB_API_KEY=<your-api-key> # copy from the top bar after login
-export WANDB_HOST=http://localhost:5000
+# Install the SDK (build the wheel first, or pip install from the release asset)
+cd sdk && python -m build --wheel
+pip install dist/mltracker-0.1.0-py3-none-any.whl
 
-python sinewave_test.py             # demo script included in the repo
+export MLTRACKER_API_KEY=<your-api-key>  # copy from the top bar after login
+export MLTRACKER_HOST=http://localhost:5000
+
+python test/demo.py
 ```
 
 ---
@@ -117,8 +120,8 @@ Environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
-| `WANDB_API_KEY` | — | Required. Copy from the dashboard top bar. |
-| `WANDB_HOST` | `http://localhost:5000` | URL of your MLTracker server. |
+| `MLTRACKER_API_KEY` | — | Required. Copy from the dashboard top bar. |
+| `MLTRACKER_HOST` | `https://mltracker.abeobk.com` | URL of your MLTracker server. |
 
 ---
 
@@ -278,14 +281,17 @@ mltracker/
 │   ├── index.html          HTML shell + CDN import maps
 │   ├── style.css           Layout and theme
 │   └── app.js              Vue 3 app (all components)
+├── sdk/
+│   ├── mltracker.py        Python SDK (single file, one dependency: requests)
+│   └── pyproject.toml      Wheel build config
+├── test/
+│   └── demo.py             Demo script (simulated training loop)
 ├── setup/
 │   ├── bootstrap.sh        One-time server setup
 │   ├── certbot.sh          HTTPS / Let's Encrypt setup
 │   ├── update.sh           Deploy code updates
 │   ├── env.template        Secrets file template
 │   └── mltracker.service   systemd unit file
-├── mltracker.py            Python SDK (single file, pip install requests)
-├── sinewave_test.py        Demo script
 ├── gunicorn.conf.py        Gunicorn configuration
 └── nginx.conf              Reference Nginx config
 ```
