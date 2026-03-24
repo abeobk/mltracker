@@ -41,7 +41,7 @@ info "Building SDK wheel..."
 DOWNLOADS_DIR="$REPO_DIR/frontend/downloads"
 mkdir -p "$DOWNLOADS_DIR"
 sudo -u "$REPO_USER" "$VENV_DIR/bin/pip" install --quiet --upgrade build
-BUILD_TMP=$(mktemp -d)
+BUILD_TMP=$(sudo -u "$REPO_USER" mktemp -d)
 if sudo -u "$REPO_USER" "$VENV_DIR/bin/python" -m build --wheel --outdir "$BUILD_TMP" "$REPO_DIR/sdk" 2>&1 | grep -v "^$"; then
     rm -f "$DOWNLOADS_DIR"/mltracker-*.whl
     cp "$BUILD_TMP"/mltracker-*.whl "$DOWNLOADS_DIR/"
