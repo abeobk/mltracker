@@ -398,6 +398,35 @@ button:hover { background: #2563eb !important; border-color: #2563eb !important;
   min-width: 160px;
 }
 
+/* ── Layout mode overrides ──────────────────────────────────────── */
+
+/* vertical: single column, each card takes full group width */
+.metric-group-body.layout-vertical {
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+.metric-group-body.layout-vertical .dashboard-card {
+  width: 100% !important;
+  min-width: unset;
+}
+
+/* horizontal: side by side, no wrap — cards keep individual widths */
+.metric-group-body.layout-horizontal {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+/* grid: CSS grid auto-fill, cards fill column width */
+.metric-group-body.layout-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+.metric-group-body.layout-grid .dashboard-card {
+  width: auto !important;
+  min-width: unset;
+  flex: unset;
+}
+
 /* Group resize handle: both axes (se-resize, same visual as card) */
 .metric-group > .card-resize-handle { cursor: se-resize; }
 

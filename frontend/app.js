@@ -462,9 +462,22 @@ const DashCard = defineComponent({
 // ---------------------------------------------------------------------------
 // MetricGroup  — resizable container for path-grouped metric/image cards
 // ---------------------------------------------------------------------------
+const LAYOUT_ICONS = {
+  free:       'fa-maximize',
+  vertical:   'fa-bars',
+  horizontal: 'fa-table-columns',
+  grid:       'fa-table-cells',
+};
+const LAYOUT_TITLES = {
+  free:       'Free (drag to arrange)',
+  vertical:   'Stack vertically',
+  horizontal: 'Stack horizontally',
+  grid:       'Grid (auto-fill)',
+};
+
 const MetricGroup = defineComponent({
-  props: ['prefix', 'width', 'height', 'is_dragging', 'is_drag_over', 'collapsed'],
-  emits: ['drag-start', 'drag-enter', 'resize-group', 'toggle-collapse'],
+  props: ['prefix', 'width', 'height', 'layout', 'is_dragging', 'is_drag_over', 'collapsed'],
+  emits: ['drag-start', 'drag-enter', 'resize-group', 'toggle-collapse', 'set-layout'],
   setup(props, { emit, slots }) {
     function on_resize_mousedown(e) {
       if (e.button !== 0) return;
@@ -488,36 +501,49 @@ const MetricGroup = defineComponent({
       window.addEventListener('mouseup', on_up);
     }
 
-    return () => h('div', {
-      class: [
-        'metric-group',
-        props.is_dragging ? 'is-dragging' : '',
-        props.is_drag_over && !props.is_dragging ? 'is-drag-over' : '',
-      ],
-      style: { width: props.width + 'px' },
-      onMouseenter: () => emit('drag-enter'),
-    }, [
-      h('div', {
-        class: 'metric-group-header',
-        onMousedown: e => { if (e.button === 0) emit('drag-start'); },
+    return () => {
+      const cur_layout = props.layout || 'grid';
+      return h('div', {
+        class: [
+          'metric-group',
+          props.is_dragging ? 'is-dragging' : '',
+          props.is_drag_over && !props.is_dragging ? 'is-drag-over' : '',
+        ],
+        style: { width: props.width + 'px' },
+        onMouseenter: () => emit('drag-enter'),
       }, [
-        h('i', { class: 'fa-solid fa-grip-vertical card-grip' }),
-        h('i', { class: 'fa-solid fa-folder-open', style: 'font-size:11px;color:var(--text-dim)' }),
-        h('span', { class: 'card-key-label' }, props.prefix),
-        h('button', {
-          class: 'card-collapse-btn',
-          title: props.collapsed ? 'Expand' : 'Collapse',
-          onMousedown: e => e.stopPropagation(),
-          onClick: () => emit('toggle-collapse'),
-        }, h('i', { class: `fa-solid fa-chevron-${props.collapsed ? 'down' : 'up'}` })),
-      ]),
-      !props.collapsed
-        ? h('div', { class: 'metric-group-body' }, slots.default?.())
-        : null,
-      !props.collapsed
-        ? h('div', { class: 'card-resize-handle', onMousedown: on_resize_mousedown })
-        : null,
-    ]);
+        h('div', {
+          class: 'metric-group-header',
+          onMousedown: e => { if (e.button === 0) emit('drag-start'); },
+        }, [
+          h('i', { class: 'fa-solid fa-grip-vertical card-grip' }),
+          h('i', { class: 'fa-solid fa-folder-open', style: 'font-size:11px;color:var(--text-dim)' }),
+          h('span', { class: 'card-key-label' }, props.prefix),
+          // Layout picker buttons
+          ...Object.keys(LAYOUT_ICONS).map(mode =>
+            h('button', {
+              class: 'card-collapse-btn',
+              title: LAYOUT_TITLES[mode],
+              style: { color: cur_layout === mode ? 'var(--accent)' : '' },
+              onMousedown: e => e.stopPropagation(),
+              onClick: () => emit('set-layout', mode),
+            }, h('i', { class: `fa-solid ${LAYOUT_ICONS[mode]}` }))
+          ),
+          h('button', {
+            class: 'card-collapse-btn',
+            title: props.collapsed ? 'Expand' : 'Collapse',
+            onMousedown: e => e.stopPropagation(),
+            onClick: () => emit('toggle-collapse'),
+          }, h('i', { class: `fa-solid fa-chevron-${props.collapsed ? 'down' : 'up'}` })),
+        ]),
+        !props.collapsed
+          ? h('div', { class: ['metric-group-body', `layout-${cur_layout}`] }, slots.default?.())
+          : null,
+        !props.collapsed
+          ? h('div', { class: 'card-resize-handle', onMousedown: on_resize_mousedown })
+          : null,
+      ]);
+    };
   },
 });
 
@@ -567,7 +593,7 @@ const MainPanel = defineComponent({
     }
 
     function default_size(key) {
-      if (key.startsWith('group::')) return { w: DEFAULT_W * 2 + 12, h: DEFAULT_CHART_H };
+      if (key.startsWith('group::')) return { w: DEFAULT_W * 2 + 12, h: DEFAULT_CHART_H, layout: 'grid' };
       const is_metric = key in (props.dash.metrics || {});
       return { w: DEFAULT_W, h: is_metric ? DEFAULT_CHART_H : DEFAULT_IMAGE_H };
     }
@@ -784,6 +810,8 @@ const MainPanel = defineComponent({
         // Group
         const gk          = unit.unit_key;
         const group_sizes = card_sizes.value[gk] || default_size(gk);
+        const layout      = group_sizes.layout || 'grid';
+        const group_h     = group_sizes.h ?? DEFAULT_CHART_H;
 
         // Collapsed children sink to the bottom; active ones stay on top
         const sorted_keys = [
@@ -792,16 +820,20 @@ const MainPanel = defineComponent({
         ];
 
         const children = sorted_keys.map(key => {
-          const csizes = card_sizes.value[key] || default_size(key);
+          const csizes    = card_sizes.value[key] || default_size(key);
           const is_metric = key in (metrics || {});
+          // Width: free/horizontal → individual; vertical/grid → null (CSS controls)
+          const child_w = (layout === 'free' || layout === 'horizontal') ? csizes.w : null;
+          // Height: grid/horizontal → uniform group height; free/vertical → individual
+          const child_h = (layout === 'grid' || layout === 'horizontal') ? group_h : csizes.h;
           return h(DashCard, {
             key,
             card_label:       key.slice(unit.prefix.length + 1),
             is_metric,
             is_dragging:      dragging_child_key.value  === key,
             is_drag_over:     drag_over_child_key.value === key && dragging_child_key.value !== key,
-            width:            csizes.w,
-            height:           csizes.h,
+            width:            child_w,
+            height:           child_h,
             collapsed:        !!csizes.collapsed,
             downsampled:      is_metric && downsampled,
             onDragStart:      () => start_child_drag(key),
@@ -819,7 +851,8 @@ const MainPanel = defineComponent({
           key:              gk,
           prefix:           unit.prefix,
           width:            group_sizes.w,
-          height:           group_sizes.h ?? DEFAULT_CHART_H,
+          height:           group_h,
+          layout,
           collapsed:        !!group_sizes.collapsed,
           is_dragging:      dragging_key.value  === gk,
           is_drag_over:     drag_over_key.value === gk,
@@ -827,6 +860,7 @@ const MainPanel = defineComponent({
           onDragEnter:      () => on_drag_enter(gk),
           onResizeGroup:    dims => on_resize(gk, { ...group_sizes, ...dims }),
           onToggleCollapse: () => toggle_collapse(gk),
+          onSetLayout:      mode => on_resize(gk, { ...group_sizes, layout: mode }),
         }, { default: () => children });
       });
 

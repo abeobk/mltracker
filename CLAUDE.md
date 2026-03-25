@@ -284,7 +284,15 @@ App
 - Layout saved to `localStorage` as `{order, sizes}` under key `wandb_layout_run_<id>` or `wandb_layout_proj_<id>`
 - Restored on first data arrival for a selection
 
-**Path grouping:** metric/image keys containing `/` are grouped at render time by `compute_units(card_order)`. Keys sharing a prefix (e.g. `train/loss`, `train/acc`) render inside a `MetricGroup` container. `card_order` stays flat — groups are derived, never stored. Group size: `card_sizes['group::prefix'] = {w, h, collapsed?}`. Each child card has its own `card_sizes[key] = {w, h, collapsed?}`. Group resize handle (se-resize) sets group `{w, h}` but each child is independently resizable. Two drag systems: top-level (`dragging_key`) reorders units (whole groups or singles); within-group (`dragging_child_key`) reorders keys within the same group. Collapsed children sort to the bottom of a group (active first, collapsed last) and render as compact strips (`width: auto`, no body).
+**Path grouping:** metric/image keys containing `/` are grouped at render time by `compute_units(card_order)`. Keys sharing a prefix (e.g. `train/loss`, `train/acc`) render inside a `MetricGroup` container. `card_order` stays flat — groups are derived, never stored. Group size: `card_sizes['group::prefix'] = {w, h, collapsed?, layout?}`. Each child card has its own `card_sizes[key] = {w, h, collapsed?}`. Group resize handle (se-resize) sets group `{w, h}` but each child is independently resizable. Two drag systems: top-level (`dragging_key`) reorders units (whole groups or singles); within-group (`dragging_child_key`) reorders keys within the same group. Collapsed children sort to the bottom of a group (active first, collapsed last) and render as compact strips (`width: auto`, no body).
+
+**Group layout modes:** 4 icon buttons on the right side of every `MetricGroup` header select the layout mode stored in `card_sizes['group::prefix'].layout`. Default is `'grid'`.
+- `free` (`fa-maximize`): flex-wrap, children keep individual `{w, h}`
+- `vertical` (`fa-bars`): flex-column, children fill group width, keep individual heights
+- `horizontal` (`fa-table-columns`): flex-row no-wrap, children keep individual widths, all share group height
+- `grid` (`fa-table-cells`): CSS `grid-template-columns: repeat(auto-fill, minmax(220px, 1fr))`, children share group height
+
+Child `{w, h}` passed to DashCard: width is `null` for vertical/grid (CSS controls); height is `group.h` for grid/horizontal, `csizes.h` for free/vertical. Active layout button highlighted with `--accent` color.
 
 > ⚠️ **Watcher must use string key, not array:**
 > ```js

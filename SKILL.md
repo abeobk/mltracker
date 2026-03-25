@@ -179,6 +179,12 @@ Project view: one card per image key; `runs` has one entry per project run, with
 ### Group children should use `flex: 0 1 auto` so they shrink when the group is narrower
 `flex: 0 0 auto` (no shrink) causes children to overflow the group. With `flex: 0 1 auto`, the inline `width` property acts as the flex-basis and children shrink proportionally when the group width forces it, stopping at `min-width: 200px`.
 
+### Group layout mode controls child `{w, h}` — don't use individual csizes for grid/horizontal
+In `grid` and `horizontal` modes, all children must share the group's height (uniform rows). Pass `group_sizes.h` as `child_h` — not `csizes.h`. In `vertical` and `grid` modes, children fill the column width via CSS; pass `null` as `child_w` so DashCard omits the inline width style. The layout is stored in `card_sizes['group::prefix'].layout`; default is `'grid'` (set in `default_size`). When the user switches layout the old individual sizes are preserved so switching back to `free` mode restores them.
+
+### `display: grid` on `.metric-group-body.layout-grid` overrides the default flex — reset `flex` on children
+The base `.metric-group-body .dashboard-card` rule sets `flex: 0 1 auto`. When the body switches to `display: grid`, the `flex` property has no meaning but can conflict with `width: auto !important`. Add `.layout-grid .dashboard-card { flex: unset; }` to avoid that.
+
 ---
 
 ## SDK
