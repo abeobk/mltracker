@@ -15,7 +15,10 @@ async function api(path, opts = {}) {
 }
 
 function run_color(idx) {
-  return `hsl(${(idx * 137) % 360}, 65%, 55%)`;
+  const h = (idx * 137) % 360;
+  return document.body.classList.contains('light')
+    ? `hsl(${h}, 60%, 36%)`
+    : `hsl(${h}, 65%, 60%)`;
 }
 
 // Group flat card_order keys by path prefix (e.g. "train/loss" → group "train")
@@ -222,7 +225,7 @@ const LeftPanel = defineComponent({
                   onClick: e => confirm_delete_project(proj, e),
                 }, h('i', { class: 'fa-solid fa-trash' })),
               ]),
-              !collapsed.value[proj.id] && (proj.runs || []).map(run =>
+              !collapsed.value[proj.id] && (proj.runs || []).map((run, run_idx) =>
                 h('div', {
                   key: run.id,
                   class: ['tree-item', 'run-row', props.sel_run_id === run.id ? 'selected' : ''],
@@ -230,7 +233,7 @@ const LeftPanel = defineComponent({
                   title: run.name,
                 }, [
                   h('span', { class: ['status-dot', run.status] }),
-                  h('span', { class: 'item-name' }, run.name),
+                  h('span', { class: 'item-name', style: { color: run_color(run_idx) } }, run.name),
                   h('button', {
                     class: 'icon-btn', title: 'Delete run',
                     onClick: e => confirm_delete_run(run, e),
@@ -247,7 +250,7 @@ const LeftPanel = defineComponent({
 // MetricChart  (rendered inside DashCard — no own outer wrapper)
 // ---------------------------------------------------------------------------
 const MetricChart = defineComponent({
-  props: ['metric_key', 'datasets', 'is_live'],
+  props: ['metric_key', 'datasets', 'is_live', 'show_legend'],
   setup(props) {
     let _chart = null;
     let _ro    = null;
@@ -265,8 +268,8 @@ const MetricChart = defineComponent({
           datasets: props.datasets.map((ds, idx) => ({
             label: ds.label,
             data: ds.points.map(p => ({ x: p.step, y: p.value })),
-            borderColor: run_color(idx),
-            backgroundColor: run_color(idx),
+            borderColor: ds.color || run_color(idx),
+            backgroundColor: ds.color || run_color(idx),
             borderWidth: 1.5,
             pointRadius: (props.datasets[0]?.points.length ?? 0) > 200 ? 0 : 2,
             tension: 0.1,
@@ -291,7 +294,7 @@ const MetricChart = defineComponent({
           },
           plugins: {
             legend: {
-              display: props.datasets.length > 1,
+              display: props.show_legend !== false && props.datasets.length > 1,
               labels: { color: label_color, usePointStyle: true, pointStyle: 'circle', boxWidth: 6, boxHeight: 6, font: { size: 11 } },
             },
           },
@@ -747,7 +750,7 @@ const MainPanel = defineComponent({
           onToggleCollapse: () => toggle_collapse(key),
         }, {
           default: () => is_metric
-            ? h(MetricChart, { metric_key: key, datasets: (metrics || {})[key] || [], is_live })
+            ? h(MetricChart, { metric_key: key, datasets: (metrics || {})[key] || [], is_live, show_legend: !!props.sel_run })
             : h(ImageSlider, { img_key: key, runs: img_card?.runs ?? [] }),
         });
       }
@@ -773,7 +776,7 @@ const MainPanel = defineComponent({
             onToggleCollapse: () => toggle_collapse(key),
           }, {
             default: () => key in (metrics || {})
-              ? h(MetricChart, { metric_key: key, datasets: (metrics || {})[key] || [], is_live })
+              ? h(MetricChart, { metric_key: key, datasets: (metrics || {})[key] || [], is_live, show_legend: !!props.sel_run })
               : h(ImageSlider, { img_key: key, runs: img_map[key]?.runs ?? [] }),
           });
         }
@@ -807,7 +810,7 @@ const MainPanel = defineComponent({
             onToggleCollapse: () => toggle_collapse(key),
           }, {
             default: () => is_metric
-              ? h(MetricChart, { metric_key: key, datasets: (metrics || {})[key] || [], is_live })
+              ? h(MetricChart, { metric_key: key, datasets: (metrics || {})[key] || [], is_live, show_legend: !!props.sel_run })
               : h(ImageSlider, { img_key: key, runs: img_map[key]?.runs ?? [] }),
           });
         });
@@ -1006,15 +1009,15 @@ const App = defineComponent({
         })),
       ]);
 
-      // Build metric grouped series
+      // Build metric grouped series — color by run's project index (stable across metrics)
       const metrics = {};
       let any_downsampled = false;
       for (const key of all_metric_keys) {
         metrics[key] = [];
-        metrics_by_run.forEach((resp, idx) => {
+        metrics_by_run.forEach((resp, run_idx) => {
           if (resp.downsampled) any_downsampled = true;
           const pts = (resp.metrics || {})[key] || [];
-          if (pts.length) metrics[key].push({ label: runs[idx].name, points: pts });
+          if (pts.length) metrics[key].push({ label: runs[run_idx].name, color: run_color(run_idx), points: pts });
         });
         if (!metrics[key].length) delete metrics[key];
       }
@@ -1027,6 +1030,7 @@ const App = defineComponent({
           label: img_key,
           runs:  runs.map((run, ri) => ({
             label:  run.name,
+            color:  run_color(ri),
             images: (images_by_run[ri] || {})[img_key] || [],
           })),
         });
@@ -1048,9 +1052,11 @@ const App = defineComponent({
         ).catch(() => ({ metrics: {}, downsampled: false }));
       }
 
+      const run_idx = (sel_project.value?.runs || []).findIndex(r => r.id === run.id);
+      const color   = run_color(run_idx < 0 ? 0 : run_idx);
       const metrics = {};
       for (const [key, pts] of Object.entries(metrics_resp.metrics || {})) {
-        metrics[key] = [{ label: run.name, points: pts }];
+        metrics[key] = [{ label: run.name, color, points: pts }];
       }
 
       const image_cards = [];

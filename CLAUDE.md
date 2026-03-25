@@ -310,11 +310,13 @@ App
 
 - Destroy before re-creating on data change
 - Read CSS vars for colours at create time (theme-aware)
-- `animation: false` for live runs
+- `animation: false` always
 - `ResizeObserver` → `chart.resize()` on card resize
-- Golden-angle colours: `hsl((idx * 137) % 360, 65%, 55%)`
-- `backgroundColor: run_color(idx)` (same as `borderColor`) — fills legend dot
-- Legend: `usePointStyle: true, pointStyle: 'circle', boxWidth: 6, boxHeight: 6`
+- Golden-angle colours: `hsl((idx * 137) % 360, sat%, light%)` — dark: 65%/60%, light: 60%/36%
+- Color assigned per run by **project index** in `load_project_dash` / `load_run_dash`, stored as `ds.color` on each dataset entry — stable across metrics regardless of which runs have data
+- `borderColor`/`backgroundColor` use `ds.color` (falls back to `run_color(idx)`)
+- Legend: `show_legend` prop — `false` for project view (run names colored in left panel instead), default `true` for run view. `usePointStyle: true, pointStyle: 'circle', boxWidth: 6, boxHeight: 6`
+- Run names in `LeftPanel` colored with `run_color(run_idx)` matching chart colors
 
 ### ImageSlider
 

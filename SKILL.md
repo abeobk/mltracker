@@ -147,6 +147,12 @@ Selection change resets `card_order = []`, then the watcher fires immediately. W
 ### `main-panel` needs `overflow: auto` (both axes) and `cards-grid` needs `min-width: min-content`
 `overflow-y: auto` alone clips groups that grow wider than the panel — no horizontal scroll appears. `min-width: min-content` on `.cards-grid` lets the flex container expand beyond the panel so oversized groups are scrollable, not clipped.
 
+### Run colors must use the run's project index, not the dataset array index
+In project view, some metrics only exist for a subset of runs — the dataset array is shorter than `proj.runs`. Using the dataset index for color causes the same run to appear in different colors across different metric charts. Always assign `color: run_color(run_idx)` where `run_idx` is the run's position in `proj.runs`, then store it on the dataset object (`ds.color`) so MetricChart uses it directly.
+
+### `run_color` reads the current theme at call time — call it when building the dataset, not at chart-render time
+Chart.js reads colors at chart-create time. If `run_color` read the theme at that point it would be fine, but assigning the color when building the dataset (`load_project_dash`) ensures it matches the LeftPanel run-name colors which are computed at Vue render time.
+
 ### Chart.js animation should always be disabled — it fires on every data update
 `animation: { duration: 300 }` re-animates on every refresh tick, making charts visually noisy. Set `animation: false` unconditionally.
 
