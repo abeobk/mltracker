@@ -57,9 +57,15 @@ const TopBar = defineComponent({
       emit('key-copied');
     }
     async function copy_wget() {
-      const cmd = `pip install ${location.origin}/api/v1/sdk`;
-      await navigator.clipboard.writeText(cmd).catch(() => {});
-      emit('key-copied');  // reuse same "Copied!" toast
+      // Follow the /api/v1/sdk redirect to get the actual .whl URL — pip requires
+      // the URL to end in .whl to recognise it as a wheel (not a source project).
+      let url = `${location.origin}/api/v1/sdk`;
+      try {
+        const res = await fetch('/api/v1/sdk', { redirect: 'follow' });
+        if (res.ok && res.url) url = res.url;
+      } catch (_) {}
+      await navigator.clipboard.writeText(`pip install "${url}"`).catch(() => {});
+      emit('key-copied');
     }
     return () => h('div', { class: 'topbar' }, [
       // Hamburger — only visible on mobile via CSS
