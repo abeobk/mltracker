@@ -57,7 +57,7 @@ const TopBar = defineComponent({
       emit('key-copied');
     }
     async function copy_wget() {
-      const cmd = `pip install ${location.origin}/sdk`;
+      const cmd = `pip install ${location.origin}/api/v1/sdk`;
       await navigator.clipboard.writeText(cmd).catch(() => {});
       emit('key-copied');  // reuse same "Copied!" toast
     }

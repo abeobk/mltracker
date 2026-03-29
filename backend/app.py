@@ -53,9 +53,9 @@ def create_app(config=None):
     def serve_file(rel_path):
         return send_from_directory(app.config['FILES_DIR'], rel_path)
 
-    # SDK install redirect — no auth; redirects to the actual versioned wheel so
-    # pip reads a valid filename after following the redirect
-    @app.get('/sdk')
+    # SDK install redirect — no auth; lives under /api/v1/ so Nginx already proxies it.
+    # Redirects to the actual versioned wheel filename so pip reads a valid name.
+    @app.get('/api/v1/sdk')
     def sdk_redirect():
         from flask import redirect as _redirect
         downloads_dir = os.path.join(app.static_folder, 'downloads')
@@ -75,7 +75,7 @@ def create_app(config=None):
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def spa(path):
-        if path.startswith(('api/', 'auth/', 'files/', 'health', 'sdk')):
+        if path.startswith(('api/', 'auth/', 'files/', 'health')):
             abort(404)
         # login.html served directly; everything else gets the SPA shell
         if path == 'login.html':

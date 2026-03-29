@@ -279,8 +279,8 @@ server {
     root $REPO_DIR/frontend;
     index index.html;
 
-    # API, auth, files, health, sdk → Gunicorn
-    location ~ ^/(api|auth|files|health|sdk)(/|$) {
+    # API, auth, files, health → Gunicorn
+    location ~ ^/(api|auth|files|health)(/|$) {
         proxy_pass         http://127.0.0.1:8000;
         proxy_set_header   Host              \$host;
         proxy_set_header   X-Real-IP         \$remote_addr;
