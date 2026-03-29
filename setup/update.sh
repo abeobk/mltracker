@@ -81,6 +81,19 @@ fi
 echo ""
 echo -e "${GREEN}--- Recent service logs ---${NC}"
 journalctl -u mltracker -n 20 --no-pager
+
+# ── Print first 10 accounts from DB ───────────────────────────────────────────
+source /etc/mltracker.env 2>/dev/null || true
+DB_FILE="${DB_PATH:-$REPO_DIR/data/mltracker.db}"
+if [[ -f "$DB_FILE" ]]; then
+    echo ""
+    echo -e "${GREEN}--- Accounts (first 10) ---${NC}"
+    sqlite3 -column -header "$DB_FILE" \
+        "SELECT id, status, CASE WHEN google_id IS NOT NULL THEN 'google' ELSE 'password' END AS auth, email, name FROM users ORDER BY id LIMIT 10;"
+else
+    warn "Database not found at $DB_FILE — skipping account list."
+fi
+
 echo ""
 echo -e "${GREEN}Update complete.${NC}"
 echo "  Health check: curl http://localhost:8000/health"
