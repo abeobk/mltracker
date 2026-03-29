@@ -58,6 +58,24 @@ def _verify_password(password: str, stored: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Bootstrap admin helper
+# ---------------------------------------------------------------------------
+
+def _activate_if_bootstrap_admin(db, user_id: int) -> bool:
+    """
+    The user with the lowest id is the bootstrap admin regardless of status.
+    If they are pending_approval, auto-activate them so they can always log in.
+    Returns True if this user is the bootstrap admin.
+    """
+    row = db.execute("SELECT MIN(id) AS min_id FROM users").fetchone()
+    if row and row['min_id'] == user_id:
+        db.execute("UPDATE users SET status = 'active' WHERE id = ?", (user_id,))
+        db.commit()
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Decorators
 # ---------------------------------------------------------------------------
 
@@ -83,10 +101,16 @@ def api_key_required(f):
         # Fast path: key already verified this session — no DB call
         user_id = _KEY_CACHE.get(key)
         if user_id is None:
-            row = get_db().execute(
-                "SELECT id FROM users WHERE api_key = ? AND status = 'active'", (key,)
+            db  = get_db()
+            row = db.execute(
+                "SELECT id, status FROM users WHERE api_key = ?", (key,)
             ).fetchone()
             if not row:
+                return jsonify({'error': 'Invalid API key'}), 401
+            if row['status'] != 'active':
+                _activate_if_bootstrap_admin(db, row['id'])
+                row = db.execute("SELECT id, status FROM users WHERE api_key = ?", (key,)).fetchone()
+            if not row or row['status'] != 'active':
                 return jsonify({'error': 'Invalid API key'}), 401
             user_id = row['id']
             _KEY_CACHE[key] = user_id
@@ -180,6 +204,12 @@ def login_post():
     if not ok or not row:
         return jsonify({'error': 'Invalid email or password'}), 401
 
+    if row['status'] != 'active':
+        _activate_if_bootstrap_admin(db, row['id'])
+        row = db.execute(
+            "SELECT id, name, picture, api_key, status FROM users WHERE id = ?", (row['id'],)
+        ).fetchone()
+
     if row['status'] == 'pending_approval':
         return jsonify({'error': 'Your account is awaiting admin approval'}), 403
 
@@ -236,6 +266,12 @@ def callback():
     )
     db.commit()
 
+    if user_row['status'] != 'active':
+        _activate_if_bootstrap_admin(db, user_row['id'])
+        user_row = db.execute(
+            "SELECT id, api_key, status FROM users WHERE id = ?", (user_row['id'],)
+        ).fetchone()
+
     if user_row['status'] == 'pending_approval':
         return redirect(url_for('auth.pending_page'))
 
@@ -267,6 +303,12 @@ def me():
     row  = db.execute(
         "SELECT api_key, status FROM users WHERE id = ?", (user['id'],)
     ).fetchone()
+    if not row:
+        session.clear()
+        return jsonify({'logged_in': False})
+    if row['status'] != 'active':
+        _activate_if_bootstrap_admin(db, user['id'])
+        row = db.execute("SELECT api_key, status FROM users WHERE id = ?", (user['id'],)).fetchone()
     if not row or row['status'] != 'active':
         session.clear()
         return jsonify({'logged_in': False})
