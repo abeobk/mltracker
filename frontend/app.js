@@ -57,7 +57,7 @@ const TopBar = defineComponent({
       emit('key-copied');
     }
     async function copy_wget() {
-      const cmd = `wget ${location.origin}/download/sdk -O mltracker.whl && pip install mltracker.whl`;
+      const cmd = `wget ${location.origin}/downloads/mltracker-latest.whl -O mltracker.whl && pip install mltracker.whl`;
       await navigator.clipboard.writeText(cmd).catch(() => {});
       emit('key-copied');  // reuse same "Copied!" toast
     }

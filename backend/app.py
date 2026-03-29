@@ -53,27 +53,11 @@ def create_app(config=None):
     def serve_file(rel_path):
         return send_from_directory(app.config['FILES_DIR'], rel_path)
 
-    # SDK wheel download — serves latest .whl from frontend/downloads/
-    @app.get('/download/sdk')
-    @_login_required
-    def download_sdk():
-        downloads_dir = os.path.join(app.static_folder, 'downloads')
-        if not os.path.isdir(downloads_dir):
-            abort(404)
-        wheels = sorted(
-            (f for f in os.listdir(downloads_dir) if f.endswith('.whl')),
-            key=lambda f: os.path.getmtime(os.path.join(downloads_dir, f)),
-            reverse=True,
-        )
-        if not wheels:
-            abort(404)
-        return send_from_directory(downloads_dir, wheels[0], as_attachment=True)
-
     # SPA catch-all — must come LAST; guards API prefixes so missing routes stay JSON 404
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def spa(path):
-        if path.startswith(('api/', 'auth/', 'files/', 'health', 'download/')):
+        if path.startswith(('api/', 'auth/', 'files/', 'health')):
             abort(404)
         # login.html served directly; everything else gets the SPA shell
         if path == 'login.html':

@@ -47,7 +47,9 @@ if sudo -u "$REPO_USER" "$VENV_DIR/bin/python" -m build --wheel --no-isolation -
     cp "$BUILD_TMP"/mltracker-*.whl "$DOWNLOADS_DIR/"
     chown "$REPO_USER:$REPO_USER" "$DOWNLOADS_DIR"/mltracker-*.whl
     WHL_NAME=$(ls "$DOWNLOADS_DIR"/mltracker-*.whl | xargs basename)
-    info "Wheel published: frontend/downloads/$WHL_NAME"
+    # Stable symlink so the wget URL never changes across version bumps
+    ln -sf "$WHL_NAME" "$DOWNLOADS_DIR/mltracker-latest.whl"
+    info "Wheel published: frontend/downloads/$WHL_NAME (symlinked as mltracker-latest.whl)"
 else
     warn "Wheel build failed — existing wheel (if any) unchanged."
 fi
