@@ -73,6 +73,11 @@ const TopBar = defineComponent({
         h('span', { class: 'user-name', title: props.user.name }, props.user.name || props.user.email),
         h('button', { title: 'Copy API key', onClick: copy_key }, [h('i', { class: 'fa-solid fa-key' })]),
       ] : null,
+      props.user
+        ? h('a', { title: 'Download Python SDK', href: '/download/sdk' }, [
+            h('i', { class: 'fa-solid fa-download' }),
+          ])
+        : null,
       props.user?.is_admin
         ? h('button', {
             title: 'Admin dashboard',
