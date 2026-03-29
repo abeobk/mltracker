@@ -209,6 +209,29 @@ Prompt saves to `~/.mltracker` (chmod 600). Env vars: `MLTRACKER_API_KEY`, `MLTR
 
 ---
 
+## pip / SDK distribution
+
+### pip determines file type from the URL *before* downloading — URL must end in `.whl`
+`pip install <url>` inspects the URL extension before fetching. If the URL doesn't end in `.whl`, pip treats the downloaded file as a source archive and looks for `setup.py` / `pyproject.toml` — even if the file is actually a valid wheel. Redirects do not help: pip classifies the type from the original URL, not the redirect target.
+
+Fix: resolve the redirect in the browser first (via `fetch` + `response.url`), then copy the final `.whl` URL:
+```js
+const res = await fetch('/api/v1/sdk', { redirect: 'follow' });
+const url = (res.ok && res.url) ? res.url : fallback;
+navigator.clipboard.writeText(`pip install "${url}"`);
+```
+
+### Valid wheel filename requires exactly 5 dash-separated parts
+`{name}-{version}-{python}-{abi}-{platform}.whl` — e.g. `mltracker-0.1.0-py3-none-any.whl`.
+- `mltracker.whl` (1 part) and `mltracker-latest.whl` (2 parts) are both invalid.
+- `-O mltracker.whl` in a `wget` command renames the file to an invalid name — never do this.
+- A symlink named `mltracker-latest.whl` also has an invalid name for pip.
+
+### New Flask routes that must be reachable without Nginx config changes go under `/api/v1/`
+The live Nginx config is at `/etc/nginx/sites-available/mltracker` (or `conf.d/`). `update.sh` reloads Nginx but does NOT copy `nginx.conf` from the repo — so adding a new top-level Flask route requires a manual server edit that's easy to forget. Put unauthenticated utility routes (e.g. SDK redirect) under `/api/v1/` which is already proxied on every deployment.
+
+---
+
 ## Nginx
 
 ### Nginx location regex must use `(/|$)` — not a bare trailing slash
