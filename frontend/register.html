@@ -160,7 +160,8 @@
     </div>
 
     <div class="form-group" id="register-form">
-      <input id="email"    type="email"    placeholder="Email"           autocomplete="email" />
+      <input id="name"     type="text"     placeholder="Full name"        autocomplete="name" />
+      <input id="email"    type="email"    placeholder="Email"            autocomplete="email" />
       <input id="password" type="password" placeholder="Password (min 8 chars)" autocomplete="new-password" />
       <input id="confirm"  type="password" placeholder="Confirm password" autocomplete="new-password" />
       <div class="error-msg" id="error-msg"></div>
@@ -185,12 +186,14 @@
 
     async function do_register() {
       const btn      = document.getElementById('register-btn');
+      const name     = document.getElementById('name').value.trim();
       const email    = document.getElementById('email').value.trim();
       const password = document.getElementById('password').value;
       const confirm  = document.getElementById('confirm').value;
 
       document.getElementById('error-msg').classList.remove('visible');
 
+      if (!name)     { show_error('Please enter your name.'); return; }
       if (!email)    { show_error('Please enter your email.'); return; }
       if (password.length < 8) { show_error('Password must be at least 8 characters.'); return; }
       if (password !== confirm) { show_error('Passwords do not match.'); return; }
@@ -202,7 +205,7 @@
         const res  = await fetch('/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password }),
+          body: JSON.stringify({ name, email, password }),
         });
         const data = await res.json();
         if (!res.ok) { show_error(data.error || 'Registration failed.'); return; }

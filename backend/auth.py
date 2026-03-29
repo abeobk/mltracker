@@ -150,8 +150,12 @@ def register():
     if not isinstance(data, dict):
         return jsonify({'error': 'Invalid request'}), 400
 
+    name     = data.get('name', '').strip()
     email    = data.get('email', '').strip().lower()
     password = data.get('password', '')
+
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
 
     # Validate email format
     if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
@@ -173,8 +177,8 @@ def register():
     api_key = secrets.token_hex(32)
 
     db.execute(
-        "INSERT INTO users(email, password_hash, api_key, status) VALUES (?,?,?,?)",
-        (email, password_hash, api_key, 'pending_approval'),
+        "INSERT INTO users(name, email, password_hash, api_key, status) VALUES (?,?,?,?,?)",
+        (name, email, password_hash, api_key, 'pending_approval'),
     )
     db.commit()
     return jsonify({'ok': True}), 201

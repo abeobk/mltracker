@@ -168,78 +168,26 @@ const AdminPanel = defineComponent({
       const active  = users.value.filter(u => u.status === 'active');
       const pending = users.value.filter(u => u.status === 'pending_approval');
 
-      return h('div', { class: 'main-panel' }, [
-        h('div', { class: 'admin-panel' }, [
+      // Build children imperatively — avoids nested-array fragment rendering bug
+      const panel_children = [];
 
-          // ── Pending approval section ──────────────────────────────────
-          pending.length > 0 ? [
-            h('div', { class: 'admin-header', style: 'color:#f59e0b' }, [
-              h('i', { class: 'fa-solid fa-clock' }),
-              h('span', `Pending Approval  (${pending.length})`),
-            ]),
-            h('table', { class: 'admin-table', style: 'margin-bottom:28px' }, [
-              h('thead', [h('tr', [
-                h('th', 'User'),
-                h('th', 'Auth'),
-                h('th', 'Joined'),
-                h('th', 'Actions'),
-              ])]),
-              h('tbody', pending.map(u =>
-                h('tr', { key: u.id }, [
-                  h('td', [
-                    h('div', { class: 'admin-user-cell' }, [
-                      u.picture
-                        ? h('img', { class: 'admin-avatar', src: u.picture, alt: '' })
-                        : h('i', { class: 'fa-solid fa-circle-user admin-avatar-icon' }),
-                      h('div', [
-                        h('div', u.name || '—'),
-                        h('div', { class: 'admin-cell-dim' }, u.email),
-                      ]),
-                    ]),
-                  ]),
-                  h('td', auth_badge(u.auth_method)),
-                  h('td', fmt_date(u.created_at)),
-                  h('td', [
-                    h('div', { style: 'display:flex;gap:6px' }, [
-                      h('button', {
-                        title: 'Approve',
-                        style: 'color:#22c55e;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px',
-                        onClick: () => approve(u),
-                      }, [h('i', { class: 'fa-solid fa-check' }), ' Approve']),
-                      h('button', {
-                        title: 'Delete',
-                        style: 'color:#e94560;background:rgba(233,69,96,0.12);border:1px solid rgba(233,69,96,0.3);border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px',
-                        onClick: () => del(u),
-                      }, [h('i', { class: 'fa-solid fa-trash' }), ' Delete']),
-                    ]),
-                  ]),
-                ])
-              )),
-            ]),
-          ] : null,
-
-          // ── Active users section ──────────────────────────────────────
-          h('div', { class: 'admin-header' }, [
-            h('i', { class: 'fa-solid fa-users-gear' }),
-            h('span', `Active Users  (${active.length})`),
-          ]),
-          h('table', { class: 'admin-table' }, [
-            h('thead', [
-              h('tr', [
-                h('th', '#'),
-                h('th', 'User'),
-                h('th', 'Auth'),
-                h('th', 'Projects'),
-                h('th', 'Runs'),
-                h('th', 'Tracking time'),
-                h('th', 'Last active'),
-                h('th', 'Joined'),
-                h('th', ''),
-              ]),
-            ]),
-            h('tbody', active.map((u, idx) =>
-              h('tr', { key: u.id, class: idx === 0 ? 'admin-row' : '' }, [
-                h('td', { class: 'admin-cell-dim' }, idx === 0 ? '★' : u.id),
+      if (pending.length > 0) {
+        panel_children.push(
+          h('div', { class: 'admin-header', style: 'color:#f59e0b' }, [
+            h('i', { class: 'fa-solid fa-clock' }),
+            h('span', `Pending Approval  (${pending.length})`),
+          ])
+        );
+        panel_children.push(
+          h('table', { class: 'admin-table', style: 'margin-bottom:28px' }, [
+            h('thead', [h('tr', [
+              h('th', 'User'),
+              h('th', 'Auth'),
+              h('th', 'Joined'),
+              h('th', 'Actions'),
+            ])]),
+            h('tbody', pending.map(u =>
+              h('tr', { key: u.id }, [
                 h('td', [
                   h('div', { class: 'admin-user-cell' }, [
                     u.picture
@@ -252,24 +200,84 @@ const AdminPanel = defineComponent({
                   ]),
                 ]),
                 h('td', auth_badge(u.auth_method)),
-                h('td', u.project_count),
-                h('td', u.run_count),
-                h('td', fmt_duration(u.total_run_seconds)),
-                h('td', fmt_date(u.last_active)),
                 h('td', fmt_date(u.created_at)),
                 h('td', [
-                  idx !== 0
-                    ? h('button', {
-                        title: 'Delete user',
-                        style: 'color:#e94560;background:transparent;border:none;cursor:pointer;opacity:0.6',
-                        onClick: () => del(u),
-                      }, [h('i', { class: 'fa-solid fa-trash' })])
-                    : null,
+                  h('div', { style: 'display:flex;gap:6px' }, [
+                    h('button', {
+                      title: 'Approve',
+                      style: 'color:#22c55e;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px;font-family:inherit',
+                      onClick: () => approve(u),
+                    }, [h('i', { class: 'fa-solid fa-check' }), ' Approve']),
+                    h('button', {
+                      title: 'Delete',
+                      style: 'color:#e94560;background:rgba(233,69,96,0.12);border:1px solid rgba(233,69,96,0.3);border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px;font-family:inherit',
+                      onClick: () => del(u),
+                    }, [h('i', { class: 'fa-solid fa-trash' }), ' Delete']),
+                  ]),
                 ]),
               ])
             )),
+          ])
+        );
+      }
+
+      panel_children.push(
+        h('div', { class: 'admin-header' }, [
+          h('i', { class: 'fa-solid fa-users-gear' }),
+          h('span', `Active Users  (${active.length})`),
+        ])
+      );
+      panel_children.push(
+        h('table', { class: 'admin-table' }, [
+          h('thead', [
+            h('tr', [
+              h('th', '#'),
+              h('th', 'User'),
+              h('th', 'Auth'),
+              h('th', 'Projects'),
+              h('th', 'Runs'),
+              h('th', 'Tracking time'),
+              h('th', 'Last active'),
+              h('th', 'Joined'),
+              h('th', ''),
+            ]),
           ]),
-        ]),
+          h('tbody', active.map((u, idx) =>
+            h('tr', { key: u.id, class: idx === 0 ? 'admin-row' : '' }, [
+              h('td', { class: 'admin-cell-dim' }, idx === 0 ? '★' : u.id),
+              h('td', [
+                h('div', { class: 'admin-user-cell' }, [
+                  u.picture
+                    ? h('img', { class: 'admin-avatar', src: u.picture, alt: '' })
+                    : h('i', { class: 'fa-solid fa-circle-user admin-avatar-icon' }),
+                  h('div', [
+                    h('div', u.name || '—'),
+                    h('div', { class: 'admin-cell-dim' }, u.email),
+                  ]),
+                ]),
+              ]),
+              h('td', auth_badge(u.auth_method)),
+              h('td', u.project_count),
+              h('td', u.run_count),
+              h('td', fmt_duration(u.total_run_seconds)),
+              h('td', fmt_date(u.last_active)),
+              h('td', fmt_date(u.created_at)),
+              h('td', [
+                idx !== 0
+                  ? h('button', {
+                      title: 'Delete user',
+                      style: 'color:#e94560;background:transparent;border:none;cursor:pointer;font-size:14px',
+                      onClick: () => del(u),
+                    }, [h('i', { class: 'fa-solid fa-trash' })])
+                  : null,
+              ]),
+            ])
+          )),
+        ])
+      );
+
+      return h('div', { class: 'main-panel' }, [
+        h('div', { class: 'admin-panel' }, panel_children),
       ]);
     };
   },
