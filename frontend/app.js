@@ -56,6 +56,11 @@ const TopBar = defineComponent({
       await navigator.clipboard.writeText(props.user.api_key).catch(() => {});
       emit('key-copied');
     }
+    async function copy_wget() {
+      const cmd = `wget ${location.origin}/download/sdk -O mltracker.whl && pip install mltracker.whl`;
+      await navigator.clipboard.writeText(cmd).catch(() => {});
+      emit('key-copied');  // reuse same "Copied!" toast
+    }
     return () => h('div', { class: 'topbar' }, [
       // Hamburger — only visible on mobile via CSS
       h('button', { class: 'menu-btn', title: 'Toggle panel', onClick: () => emit('toggle-panel') }, [
@@ -74,7 +79,7 @@ const TopBar = defineComponent({
         h('button', { title: 'Copy API key', onClick: copy_key }, [h('i', { class: 'fa-solid fa-key' })]),
       ] : null,
       props.user
-        ? h('a', { title: 'Download Python SDK', href: '/download/sdk' }, [
+        ? h('button', { title: 'Copy SDK install command', onClick: copy_wget }, [
             h('i', { class: 'fa-solid fa-download' }),
           ])
         : null,
