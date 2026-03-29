@@ -53,6 +53,24 @@ def create_app(config=None):
     def serve_file(rel_path):
         return send_from_directory(app.config['FILES_DIR'], rel_path)
 
+    # SDK install redirect — no auth; redirects to the actual versioned wheel so
+    # pip reads a valid filename after following the redirect
+    @app.get('/sdk')
+    def sdk_redirect():
+        from flask import redirect as _redirect
+        downloads_dir = os.path.join(app.static_folder, 'downloads')
+        if not os.path.isdir(downloads_dir):
+            abort(404)
+        wheels = sorted(
+            (f for f in os.listdir(downloads_dir)
+             if f.endswith('.whl') and f != 'mltracker-latest.whl'),
+            key=lambda f: os.path.getmtime(os.path.join(downloads_dir, f)),
+            reverse=True,
+        )
+        if not wheels:
+            abort(404)
+        return _redirect(f'/downloads/{wheels[0]}')
+
     # SPA catch-all — must come LAST; guards API prefixes so missing routes stay JSON 404
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
