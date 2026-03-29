@@ -65,10 +65,55 @@ _MIGRATIONS = [
 ]
 
 
+def _fix_google_id_not_null(db):
+    """
+    SQLite cannot ALTER COLUMN to drop NOT NULL. Rebuild users table if google_id
+    still has a NOT NULL constraint (original schema). Safe to re-run — detects via
+    table_info and skips if already nullable.
+    """
+    cols = db.execute("PRAGMA table_info(users)").fetchall()
+    col = next((c for c in cols if c['name'] == 'google_id'), None)
+    if col is None or col['notnull'] == 0:
+        return  # already nullable or column missing — nothing to do
+
+    # Rebuild: create new table, copy, drop old, rename
+    db.executescript("""
+        PRAGMA foreign_keys = OFF;
+
+        CREATE TABLE users_new (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            google_id        TEXT UNIQUE,
+            email            TEXT NOT NULL,
+            name             TEXT,
+            picture          TEXT,
+            api_key          TEXT UNIQUE NOT NULL,
+            password_hash    TEXT,
+            status           TEXT NOT NULL DEFAULT 'pending_approval',
+            created_at       REAL NOT NULL DEFAULT (unixepoch('now'))
+        );
+
+        INSERT INTO users_new (id, google_id, email, name, picture, api_key,
+                               password_hash, status, created_at)
+        SELECT id, google_id, email, name, picture, api_key,
+               password_hash,
+               COALESCE(status, 'active'),
+               created_at
+        FROM users;
+
+        DROP TABLE users;
+        ALTER TABLE users_new RENAME TO users;
+
+        PRAGMA foreign_keys = ON;
+    """)
+    db.commit()
+
+
 def migrate_db(app):
     """Apply incremental schema changes to existing databases."""
     with app.app_context():
         db = get_db()
+        # Must run before ALTER TABLE migrations so the column additions land on the right table
+        _fix_google_id_not_null(db)
         for stmt in _MIGRATIONS:
             try:
                 db.execute(stmt)
