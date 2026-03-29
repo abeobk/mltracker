@@ -75,7 +75,7 @@ def create_app(config=None):
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def spa(path):
-        if path.startswith(('api/', 'auth/', 'files/', 'health')):
+        if path.startswith(('api/', 'auth/', 'files/', 'health', 'sdk')):
             abort(404)
         # login.html served directly; everything else gets the SPA shell
         if path == 'login.html':
