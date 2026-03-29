@@ -70,14 +70,28 @@ def _fix_google_id_not_null(db):
     SQLite cannot ALTER COLUMN to drop NOT NULL. Rebuild users table if google_id
     still has a NOT NULL constraint (original schema). Safe to re-run — detects via
     table_info and skips if already nullable.
+
+    Only copies columns that actually exist in the old table so this works regardless
+    of whether ALTER TABLE migrations have already run (password_hash / status may or
+    may not be present). All existing rows get status='active' — they were working
+    accounts before this migration was introduced.
     """
     cols = db.execute("PRAGMA table_info(users)").fetchall()
     col = next((c for c in cols if c['name'] == 'google_id'), None)
     if col is None or col['notnull'] == 0:
-        return  # already nullable or column missing — nothing to do
+        return  # already nullable — nothing to do
 
-    # Rebuild: create new table, copy, drop old, rename
-    db.executescript("""
+    existing_col_names = {c['name'] for c in cols}
+
+    # Build INSERT column list from what's available in the old table,
+    # always forcing status='active' for existing rows.
+    old_cols = [c for c in ['id', 'google_id', 'email', 'name', 'picture',
+                             'api_key', 'password_hash', 'created_at']
+                if c in existing_col_names]
+    col_list  = ', '.join(old_cols + ['status'])
+    select    = ', '.join(old_cols + ["'active'"])
+
+    db.executescript(f"""
         PRAGMA foreign_keys = OFF;
 
         CREATE TABLE users_new (
@@ -92,13 +106,8 @@ def _fix_google_id_not_null(db):
             created_at       REAL NOT NULL DEFAULT (unixepoch('now'))
         );
 
-        INSERT INTO users_new (id, google_id, email, name, picture, api_key,
-                               password_hash, status, created_at)
-        SELECT id, google_id, email, name, picture, api_key,
-               password_hash,
-               COALESCE(status, 'active'),
-               created_at
-        FROM users;
+        INSERT INTO users_new ({col_list})
+        SELECT {select} FROM users;
 
         DROP TABLE users;
         ALTER TABLE users_new RENAME TO users;
