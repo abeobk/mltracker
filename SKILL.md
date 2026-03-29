@@ -105,8 +105,20 @@ Current limits: `POST /runs` 60/min · `POST /runs/<id>/log` 600/min · `POST /a
 ### Store secrets in `/etc/mltracker.env` (mode 600) — never `/etc/environment`
 `/etc/environment` is world-readable. Load via systemd `EnvironmentFile=`.
 
-### Admin is checked at request time via `SELECT MIN(id) FROM users` — never cached in session
-The session cookie persists across restarts; caching admin status there wouldn't update if users were deleted.
+### Admin is checked at request time via `SELECT MIN(id) FROM users WHERE status='active'` — never cached in session
+The session cookie persists across restarts; caching admin status there wouldn't update if users were deleted. The `WHERE status='active'` filter is required — otherwise a pending user with a low id would appear as admin.
+
+### Password hashing uses `hashlib.scrypt` (stdlib) — never SHA256
+SHA256 is a fast hash; attackers can try billions of guesses/second with a GPU. `hashlib.scrypt` is memory-hard (n=16384, r=8, p=1). Hash format: `<salt_hex>:<dk_hex>` where salt is 16 random bytes. Always run the scrypt computation even when the user lookup fails (use a dummy hash) to prevent timing-based user enumeration.
+
+### First Google OAuth user auto-activates — email/password users always need approval
+`POST /auth/register` always inserts with `status='pending_approval'`. `/auth/callback` checks `COUNT(*) FROM users` before insert: if 0, uses `status='active'`. This guarantees the admin bootstraps via OAuth. The `INSERT OR IGNORE` never downgrades an existing user's status.
+
+### `api_key_required` must reject non-active users
+Add `AND status = 'active'` to the key lookup query. Without it, a pending or deleted user with a known API key could still call write endpoints.
+
+### Serve static auth pages via blueprint routes, not the SPA catch-all
+`register.html` and `pending.html` are served by `GET /auth/register` and `GET /auth/pending` in `auth.py` using `send_from_directory`. The SPA catch-all only needs to handle `login.html` explicitly — all other `/auth/*` paths hit the blueprint first.
 
 ---
 

@@ -7,7 +7,9 @@ admin_bp = Blueprint('admin', __name__)
 
 
 def _is_admin(user_id: int) -> bool:
-    row = get_db().execute("SELECT MIN(id) AS min_id FROM users").fetchone()
+    row = get_db().execute(
+        "SELECT MIN(id) AS min_id FROM users WHERE status = 'active'"
+    ).fetchone()
     return row and row['min_id'] == user_id
 
 
@@ -31,6 +33,8 @@ def list_users():
             u.email,
             u.name,
             u.picture,
+            u.status,
+            CASE WHEN u.google_id IS NOT NULL THEN 'google' ELSE 'password' END AS auth_method,
             u.created_at,
             COUNT(DISTINCT p.id)  AS project_count,
             COUNT(DISTINCT r.id)  AS run_count,
@@ -49,3 +53,36 @@ def list_users():
     """).fetchall()
 
     return jsonify([dict(r) for r in rows])
+
+
+@admin_bp.post('/admin/users/<int:user_id>/approve')
+@admin_required
+def approve_user(user_id):
+    my_id = session['user']['id']
+    if user_id == my_id:
+        return jsonify({'error': 'Cannot modify your own account'}), 400
+
+    db = get_db()
+    cur = db.execute(
+        "UPDATE users SET status = 'active' WHERE id = ? AND status = 'pending_approval'",
+        (user_id,),
+    )
+    db.commit()
+    if cur.rowcount == 0:
+        return jsonify({'error': 'User not found or not pending approval'}), 404
+    return jsonify({'ok': True})
+
+
+@admin_bp.delete('/admin/users/<int:user_id>')
+@admin_required
+def delete_user(user_id):
+    my_id = session['user']['id']
+    if user_id == my_id:
+        return jsonify({'error': 'Cannot delete your own account'}), 400
+
+    db = get_db()
+    cur = db.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    db.commit()
+    if cur.rowcount == 0:
+        return jsonify({'error': 'User not found'}), 404
+    return jsonify({'ok': True})

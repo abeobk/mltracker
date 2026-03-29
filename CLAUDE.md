@@ -115,17 +115,38 @@ Single-column grid. Left panel is a fixed overlay (slides in from left, z-index 
 
 ## Authentication
 
+### Account statuses
+All new users land in `pending_approval` and cannot log in until an admin approves them:
+```
+pending_approval  →  (admin approves)  →  active
+```
+**First Google OAuth user** (when `users` table is empty) is auto-activated and becomes the admin. This bootstraps the system — email/password users always require approval, so the first user must register via Google.
+
+`api_key_required` rejects keys belonging to non-`active` users.
+`/auth/me` clears the session and returns `logged_in: false` if the user's status is not `active`.
+
 ### Browser — Google OAuth 2.0
-Three-stage flow:
-1. `/auth/login` — serves `login.html` (static page with "Continue with Google" button)
-2. User clicks button → `/auth/google` → Google OAuth consent screen
-3. Google redirects → `/auth/callback` → creates/updates user in DB, sets session cookie (`id`, `email`, `name`, `picture`), redirects to `/`
+Flow:
+1. `/auth/login` — serves `login.html` (email/password form + "Continue with Google" button)
+2. User clicks Google → `/auth/google` → Google consent screen
+3. Google redirects → `/auth/callback`:
+   - First user (empty DB) → `status='active'`, session set, redirect to `/`
+   - Existing active user → session set, redirect to `/`
+   - New or pending user → redirect to `/auth/pending` (no session set)
 - `/auth/logout` → clear session, redirect to `/auth/login`
+
+### Browser — Email / Password
+- `GET /auth/register` — serves `register.html`
+- `POST /auth/register` — validate email/password (≥8 chars), hash with `hashlib.scrypt`, insert with `status='pending_approval'`. Rate limit: 10/hr per IP.
+- `POST /auth/login` — verify scrypt hash, check `status='active'`, set session. 403 if pending. Rate limit: 20/hr per IP.
+- `GET /auth/pending` — serves `pending.html` (informational page for users awaiting approval)
+
+Password hash format: `<salt_hex>:<dk_hex>` (scrypt n=16384, r=8, p=1). `google_id` is NULL for email/password users.
 
 ### Scripts — API Key (Bearer token)
 - 32-byte hex key via `secrets.token_hex(32)`, stored plain in `users.api_key`
 - `Authorization: Bearer <key>` on every `/api/*` request
-- `api_key_required` decorator sets `g.user_id`
+- `api_key_required` decorator sets `g.user_id`; rejects keys for non-`active` users
 
 > ⚠️ **Never accept API key as a query param — query strings end up in server logs.**
 
@@ -142,7 +163,8 @@ SQLite is **never written during `log()`** — only on run create, finish, resum
 Every connection: `PRAGMA journal_mode=WAL` + `PRAGMA foreign_keys=ON`.
 
 ```
-users       id, google_id (unique), email, name, picture, api_key (unique), created_at
+users       id, google_id (unique, nullable), email, name, picture, api_key (unique),
+            password_hash (nullable), status (pending_approval|active), created_at
 projects    id, user_id → users ON DELETE CASCADE, name, created_at; UNIQUE(user_id, name)
 runs        id, project_id → projects ON DELETE CASCADE, name, status (running|finished|crashed),
             config (JSON blob), created_at, finished_at; UNIQUE(project_id, name)
@@ -235,11 +257,13 @@ All API routes under `/api/v1/`. Scripts use `Authorization: Bearer <api_key>`.
 > ```
 > Otherwise a typo'd `/api/v1/foo` returns HTML 200, silently breaking API clients.
 
-### Admin endpoint (session auth)
+### Admin endpoints (session auth)
 
 | Method | Path | Notes |
 |--------|------|-------|
-| `GET` | `/api/v1/admin/users` | All users + stats; 403 if not admin |
+| `GET` | `/api/v1/admin/users` | All users + stats + `status` + `auth_method`; 403 if not admin |
+| `POST` | `/api/v1/admin/users/<id>/approve` | Set `status='active'`; 404 if not pending; 400 if self |
+| `DELETE` | `/api/v1/admin/users/<id>` | Delete user; 404 if not found; 400 if self |
 
 ---
 
@@ -346,13 +370,16 @@ Two refresh modes — `_refresh_run_id` and `_refresh_proj_id` (mutually exclusi
 
 ### Admin Dashboard
 
-- **First user** (lowest `id` in `users` table) is admin — determined at runtime, no schema change.
-- `/auth/me` includes `is_admin: bool` — checked on every load via `SELECT MIN(id) FROM users`.
-- `GET /api/v1/admin/users` — returns all users with: `project_count`, `run_count`, `total_run_seconds` (sum of `finished_at - created_at` for finished runs), `last_active`, `created_at`. Guarded by `admin_required` decorator (403 for non-admins).
+- **First active user** (lowest `id` among `status='active'` rows) is admin — determined at runtime via `SELECT MIN(id) FROM users WHERE status='active'`.
+- `/auth/me` includes `is_admin: bool` — checked on every load.
+- `GET /api/v1/admin/users` — all users with stats + `status` + `auth_method` (`google` or `password`). Guarded by `admin_required` (403 for non-admins).
+- `POST /api/v1/admin/users/<id>/approve` — sets `status='active'`. Cannot approve self (400). 404 if not pending.
+- `DELETE /api/v1/admin/users/<id>` — deletes user. Cannot delete self (400). 404 if not found.
 - **TopBar** shows `fa-users-gear` button only when `user.is_admin`; highlighted (accent colour) when active.
-- **AdminPanel** replaces LeftPanel + MainPanel when toggled; shows a table with avatar, name, email, stats. First-user row has accent tint + ★.
+- **AdminPanel** — two sections: **Pending Approval** (amber header, approve + delete buttons per row) and **Active Users** (normal table, delete button per non-admin row). First active user row has ★.
+- Auth method shown with icon: `fa-brands fa-google` (Google OAuth) or `fa-solid fa-lock` (email/password).
 
-> ⚠️ **Admin check must query `MIN(id)` at request time** — never store the admin flag in the session cookie (it persists across user deletions and wouldn't update if the first user changes).
+> ⚠️ **Admin check must query `MIN(id) WHERE status='active'` at request time** — never store the admin flag in the session cookie (it persists across user deletions and wouldn't update if the first user changes).
 
 > ⚠️ **Interval leak:** failing to clear on selection change causes multiple overlapping refresh timers that escalate API request rate as the user clicks around.
 

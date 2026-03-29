@@ -23,13 +23,15 @@ def close_db(exc=None):
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    google_id  TEXT UNIQUE NOT NULL,
-    email      TEXT NOT NULL,
-    name       TEXT,
-    picture    TEXT,
-    api_key    TEXT UNIQUE NOT NULL,
-    created_at REAL NOT NULL DEFAULT (unixepoch('now'))
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    google_id        TEXT UNIQUE,
+    email            TEXT NOT NULL,
+    name             TEXT,
+    picture          TEXT,
+    api_key          TEXT UNIQUE NOT NULL,
+    password_hash    TEXT,
+    status           TEXT NOT NULL DEFAULT 'pending_approval',
+    created_at       REAL NOT NULL DEFAULT (unixepoch('now'))
 );
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -55,6 +57,24 @@ CREATE TABLE IF NOT EXISTS runs (
 -- and referenced inline in metrics.jsonl as {"type": "image", "name": "<filename>"}
 -- No SQLite table needed for images.
 """
+
+# Columns added after initial deploy — ALTER TABLE is idempotent (catches OperationalError).
+_MIGRATIONS = [
+    "ALTER TABLE users ADD COLUMN password_hash TEXT",
+    "ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'pending_approval'",
+]
+
+
+def migrate_db(app):
+    """Apply incremental schema changes to existing databases."""
+    with app.app_context():
+        db = get_db()
+        for stmt in _MIGRATIONS:
+            try:
+                db.execute(stmt)
+                db.commit()
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
 
 def init_db(app):

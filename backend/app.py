@@ -1,7 +1,7 @@
 import os
 from flask import Flask, jsonify, send_from_directory, abort, g
 from config import Config
-from db import get_db, close_db, init_db
+from db import get_db, close_db, init_db, migrate_db
 
 
 def create_app(config=None):
@@ -14,6 +14,7 @@ def create_app(config=None):
 
     # DB lifecycle
     init_db(app)
+    migrate_db(app)
     app.teardown_appcontext(close_db)
 
     # Rate limiter (Redis-backed; must be initialised before blueprints)
