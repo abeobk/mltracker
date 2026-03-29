@@ -223,3 +223,6 @@ This applies to the generated config in `bootstrap.sh` and the reference `nginx.
 ## Workflow
 
 ### Before every commit: update `CLAUDE.md` and `SKILL.md`, write a detailed commit message
+
+### Bump `?v=N` in `index.html` on every commit that changes `app.js` or `style.css`
+`style.css?v=N` and `app.js?v=N` are the cache-busting query strings. Increment N by 1 whenever either file changes — browsers cache aggressively and users won't see updates otherwise.
