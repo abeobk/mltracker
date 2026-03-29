@@ -217,6 +217,9 @@ def login_post():
     if row['status'] == 'pending_approval':
         return jsonify({'error': 'Your account is awaiting admin approval'}), 403
 
+    if row['status'] == 'suspended':
+        return jsonify({'error': 'Your account has been suspended'}), 403
+
     if row['status'] != 'active':
         return jsonify({'error': 'Account not active'}), 403
 
@@ -278,6 +281,9 @@ def callback():
 
     if user_row['status'] == 'pending_approval':
         return redirect(url_for('auth.pending_page'))
+
+    if user_row['status'] == 'suspended':
+        return redirect(url_for('auth.pending_page') + '?reason=suspended')
 
     if user_row['status'] != 'active':
         return redirect(url_for('auth.login') + '?error=inactive')

@@ -90,15 +90,26 @@
       MLTracker
     </div>
 
-    <i class="fa-solid fa-clock icon"></i>
+    <i class="fa-solid fa-clock icon" id="icon"></i>
 
-    <span class="title">Awaiting Approval</span>
+    <span class="title" id="title">Awaiting Approval</span>
 
-    <p class="body">
+    <p class="body" id="body">
       Your account has been created and is <strong>pending admin approval</strong>.<br><br>
       You'll be able to sign in as soon as an administrator reviews and approves your account.
       There's nothing more you need to do right now.
     </p>
+
+    <script>
+      if (new URLSearchParams(location.search).get('reason') === 'suspended') {
+        document.getElementById('icon').className = 'fa-solid fa-ban icon';
+        document.getElementById('icon').style.color = '#e94560';
+        document.getElementById('title').textContent = 'Account Suspended';
+        document.getElementById('body').innerHTML =
+          'Your account has been <strong>suspended</strong> by an administrator.<br><br>' +
+          'You cannot sign in until an administrator re-activates your account.';
+      }
+    </script>
 
     <hr class="divider" />
 

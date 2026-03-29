@@ -134,9 +134,15 @@ const AdminPanel = defineComponent({
       try {
         await api(`/api/v1/admin/users/${u.id}/approve`, { method: 'POST' });
         await load();
-      } catch (e) {
-        alert(e.message);
-      }
+      } catch (e) { alert(e.message); }
+    }
+
+    async function suspend(u) {
+      if (!confirm(`Suspend ${u.email}? They will not be able to log in until re-activated.`)) return;
+      try {
+        await api(`/api/v1/admin/users/${u.id}/suspend`, { method: 'POST' });
+        await load();
+      } catch (e) { alert(e.message); }
     }
 
     async function del(u) {
@@ -144,9 +150,7 @@ const AdminPanel = defineComponent({
       try {
         await api(`/api/v1/admin/users/${u.id}`, { method: 'DELETE' });
         await load();
-      } catch (e) {
-        alert(e.message);
-      }
+      } catch (e) { alert(e.message); }
     }
 
     onMounted(load);
@@ -165,116 +169,101 @@ const AdminPanel = defineComponent({
         h('div', { class: 'empty-state' }, [h('span', error.value)]),
       ]);
 
-      const active  = users.value.filter(u => u.status === 'active');
-      const pending = users.value.filter(u => u.status === 'pending_approval');
+      const active     = users.value.filter(u => u.status === 'active');
+      const pending    = users.value.filter(u => u.status === 'pending_approval');
+      const suspended  = users.value.filter(u => u.status === 'suspended');
+
+      const BTN = (label, icon, color, bg, border, onClick) =>
+        h('button', {
+          style: `color:${color};background:${bg};border:1px solid ${border};border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px;font-family:inherit`,
+          onClick,
+        }, [h('i', { class: `fa-solid ${icon}` }), ` ${label}`]);
+
+      function user_cell(u) {
+        return h('td', [
+          h('div', { class: 'admin-user-cell' }, [
+            u.picture
+              ? h('img', { class: 'admin-avatar', src: u.picture, alt: '' })
+              : h('i', { class: 'fa-solid fa-circle-user admin-avatar-icon' }),
+            h('div', [
+              h('div', u.name || '—'),
+              h('div', { class: 'admin-cell-dim' }, u.email),
+            ]),
+          ]),
+        ]);
+      }
 
       // Build children imperatively — avoids nested-array fragment rendering bug
       const panel_children = [];
 
+      // ── Pending Approval ─────────────────────────────────────────────────
       if (pending.length > 0) {
-        panel_children.push(
-          h('div', { class: 'admin-header', style: 'color:#f59e0b' }, [
-            h('i', { class: 'fa-solid fa-clock' }),
-            h('span', `Pending Approval  (${pending.length})`),
-          ])
-        );
-        panel_children.push(
-          h('table', { class: 'admin-table', style: 'margin-bottom:28px' }, [
-            h('thead', [h('tr', [
-              h('th', 'User'),
-              h('th', 'Auth'),
-              h('th', 'Joined'),
-              h('th', 'Actions'),
+        panel_children.push(h('div', { class: 'admin-header', style: 'color:#f59e0b' }, [
+          h('i', { class: 'fa-solid fa-clock' }),
+          h('span', `Pending Approval  (${pending.length})`),
+        ]));
+        panel_children.push(h('table', { class: 'admin-table', style: 'margin-bottom:28px' }, [
+          h('thead', [h('tr', [h('th', 'User'), h('th', 'Auth'), h('th', 'Joined'), h('th', 'Actions')])]),
+          h('tbody', pending.map(u => h('tr', { key: u.id }, [
+            user_cell(u),
+            h('td', auth_badge(u.auth_method)),
+            h('td', fmt_date(u.created_at)),
+            h('td', [h('div', { style: 'display:flex;gap:6px' }, [
+              BTN('Approve', 'fa-check',  '#22c55e', 'rgba(34,197,94,0.12)',  'rgba(34,197,94,0.3)',  () => approve(u)),
+              BTN('Delete',  'fa-trash',  '#e94560', 'rgba(233,69,96,0.12)', 'rgba(233,69,96,0.3)', () => del(u)),
             ])]),
-            h('tbody', pending.map(u =>
-              h('tr', { key: u.id }, [
-                h('td', [
-                  h('div', { class: 'admin-user-cell' }, [
-                    u.picture
-                      ? h('img', { class: 'admin-avatar', src: u.picture, alt: '' })
-                      : h('i', { class: 'fa-solid fa-circle-user admin-avatar-icon' }),
-                    h('div', [
-                      h('div', u.name || '—'),
-                      h('div', { class: 'admin-cell-dim' }, u.email),
-                    ]),
-                  ]),
-                ]),
-                h('td', auth_badge(u.auth_method)),
-                h('td', fmt_date(u.created_at)),
-                h('td', [
-                  h('div', { style: 'display:flex;gap:6px' }, [
-                    h('button', {
-                      title: 'Approve',
-                      style: 'color:#22c55e;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px;font-family:inherit',
-                      onClick: () => approve(u),
-                    }, [h('i', { class: 'fa-solid fa-check' }), ' Approve']),
-                    h('button', {
-                      title: 'Delete',
-                      style: 'color:#e94560;background:rgba(233,69,96,0.12);border:1px solid rgba(233,69,96,0.3);border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px;font-family:inherit',
-                      onClick: () => del(u),
-                    }, [h('i', { class: 'fa-solid fa-trash' }), ' Delete']),
-                  ]),
-                ]),
-              ])
-            )),
-          ])
-        );
+          ]))),
+        ]));
       }
 
-      panel_children.push(
-        h('div', { class: 'admin-header' }, [
-          h('i', { class: 'fa-solid fa-users-gear' }),
-          h('span', `Active Users  (${active.length})`),
-        ])
-      );
-      panel_children.push(
-        h('table', { class: 'admin-table' }, [
-          h('thead', [
-            h('tr', [
-              h('th', '#'),
-              h('th', 'User'),
-              h('th', 'Auth'),
-              h('th', 'Projects'),
-              h('th', 'Runs'),
-              h('th', 'Tracking time'),
-              h('th', 'Last active'),
-              h('th', 'Joined'),
-              h('th', ''),
-            ]),
-          ]),
-          h('tbody', active.map((u, idx) =>
-            h('tr', { key: u.id, class: idx === 0 ? 'admin-row' : '' }, [
-              h('td', { class: 'admin-cell-dim' }, idx === 0 ? '★' : u.id),
-              h('td', [
-                h('div', { class: 'admin-user-cell' }, [
-                  u.picture
-                    ? h('img', { class: 'admin-avatar', src: u.picture, alt: '' })
-                    : h('i', { class: 'fa-solid fa-circle-user admin-avatar-icon' }),
-                  h('div', [
-                    h('div', u.name || '—'),
-                    h('div', { class: 'admin-cell-dim' }, u.email),
-                  ]),
-                ]),
-              ]),
-              h('td', auth_badge(u.auth_method)),
-              h('td', u.project_count),
-              h('td', u.run_count),
-              h('td', fmt_duration(u.total_run_seconds)),
-              h('td', fmt_date(u.last_active)),
-              h('td', fmt_date(u.created_at)),
-              h('td', [
-                idx !== 0
-                  ? h('button', {
-                      title: 'Delete user',
-                      style: 'color:#e94560;background:transparent;border:none;cursor:pointer;font-size:14px',
-                      onClick: () => del(u),
-                    }, [h('i', { class: 'fa-solid fa-trash' })])
-                  : null,
-              ]),
-            ])
-          )),
-        ])
-      );
+      // ── Suspended ────────────────────────────────────────────────────────
+      if (suspended.length > 0) {
+        panel_children.push(h('div', { class: 'admin-header', style: 'color:#e94560' }, [
+          h('i', { class: 'fa-solid fa-ban' }),
+          h('span', `Suspended  (${suspended.length})`),
+        ]));
+        panel_children.push(h('table', { class: 'admin-table', style: 'margin-bottom:28px' }, [
+          h('thead', [h('tr', [h('th', 'User'), h('th', 'Auth'), h('th', 'Joined'), h('th', 'Actions')])]),
+          h('tbody', suspended.map(u => h('tr', { key: u.id }, [
+            user_cell(u),
+            h('td', auth_badge(u.auth_method)),
+            h('td', fmt_date(u.created_at)),
+            h('td', [h('div', { style: 'display:flex;gap:6px' }, [
+              BTN('Re-activate', 'fa-check',  '#22c55e', 'rgba(34,197,94,0.12)',  'rgba(34,197,94,0.3)',  () => approve(u)),
+              BTN('Delete',      'fa-trash',  '#e94560', 'rgba(233,69,96,0.12)', 'rgba(233,69,96,0.3)', () => del(u)),
+            ])]),
+          ]))),
+        ]));
+      }
+
+      // ── Active Users ─────────────────────────────────────────────────────
+      panel_children.push(h('div', { class: 'admin-header' }, [
+        h('i', { class: 'fa-solid fa-users-gear' }),
+        h('span', `Active Users  (${active.length})`),
+      ]));
+      panel_children.push(h('table', { class: 'admin-table' }, [
+        h('thead', [h('tr', [
+          h('th', '#'), h('th', 'User'), h('th', 'Auth'),
+          h('th', 'Projects'), h('th', 'Runs'), h('th', 'Tracking time'),
+          h('th', 'Last active'), h('th', 'Joined'), h('th', 'Actions'),
+        ])]),
+        h('tbody', active.map((u, idx) =>
+          h('tr', { key: u.id, class: idx === 0 ? 'admin-row' : '' }, [
+            h('td', { class: 'admin-cell-dim' }, idx === 0 ? '★' : u.id),
+            user_cell(u),
+            h('td', auth_badge(u.auth_method)),
+            h('td', u.project_count),
+            h('td', u.run_count),
+            h('td', fmt_duration(u.total_run_seconds)),
+            h('td', fmt_date(u.last_active)),
+            h('td', fmt_date(u.created_at)),
+            h('td', idx !== 0 ? [h('div', { style: 'display:flex;gap:6px' }, [
+              BTN('Suspend', 'fa-ban',   '#f59e0b', 'rgba(245,158,11,0.12)', 'rgba(245,158,11,0.3)', () => suspend(u)),
+              BTN('Delete',  'fa-trash', '#e94560', 'rgba(233,69,96,0.12)', 'rgba(233,69,96,0.3)',  () => del(u)),
+            ])] : []),
+          ])
+        )),
+      ]));
 
       return h('div', { class: 'main-panel' }, [
         h('div', { class: 'admin-panel' }, panel_children),

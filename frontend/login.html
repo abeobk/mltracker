@@ -217,7 +217,8 @@
         });
         const data = await res.json();
         if (res.status === 403) {
-          window.location.href = '/auth/pending';
+          const reason = (data.error || '').includes('suspended') ? '?reason=suspended' : '';
+          window.location.href = '/auth/pending' + reason;
           return;
         }
         if (!res.ok) { show_error(data.error || 'Sign in failed.'); return; }

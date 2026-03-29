@@ -64,12 +64,30 @@ def approve_user(user_id):
 
     db = get_db()
     cur = db.execute(
-        "UPDATE users SET status = 'active' WHERE id = ? AND status = 'pending_approval'",
+        "UPDATE users SET status = 'active' WHERE id = ? AND status IN ('pending_approval', 'suspended')",
         (user_id,),
     )
     db.commit()
     if cur.rowcount == 0:
-        return jsonify({'error': 'User not found or not pending approval'}), 404
+        return jsonify({'error': 'User not found or already active'}), 404
+    return jsonify({'ok': True})
+
+
+@admin_bp.post('/admin/users/<int:user_id>/suspend')
+@admin_required
+def suspend_user(user_id):
+    my_id = session['user']['id']
+    if user_id == my_id:
+        return jsonify({'error': 'Cannot suspend your own account'}), 400
+
+    db = get_db()
+    cur = db.execute(
+        "UPDATE users SET status = 'suspended' WHERE id = ? AND status = 'active'",
+        (user_id,),
+    )
+    db.commit()
+    if cur.rowcount == 0:
+        return jsonify({'error': 'User not found or not active'}), 404
     return jsonify({'ok': True})
 
 
