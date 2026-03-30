@@ -474,7 +474,8 @@ pip install sdk/dist/mltracker-0.1.0-py3-none-any.whl
 **Setup scripts** (in `setup/`):
 - `bootstrap.sh` — one-time setup; prompts for data storage location (repo `data/`, EBS volume, or custom); auto-detects distro (Ubuntu / AL2023 / AL2); derives repo path and owner from script location — no hardcoded paths; fixes Nginx home dir permissions (`chmod o+x`)
 - `certbot.sh` — run after DNS is live; installs TLS cert, flips `SESSION_COOKIE_SECURE=true`
-- `update.sh` — `git pull` + pip sync + service restart
+- `update.sh` — `git pull` + pip sync + SDK wheel build + service restart
+- `local_test.sh` — local dev only; creates venv, builds SDK wheel, starts Flask on `http://localhost:5000` with in-memory rate limiting; no Redis or Google OAuth required; first registered user auto-activates as admin
 - `env.template` — copied to `/etc/mltracker.env` with `__REPO_DIR__` substituted at install time
 
 **Key config:**
@@ -512,6 +513,7 @@ SESSION_COOKIE_SECURE=true
 [x] Phase 4: frontend (index.html, style.css, app.js) → dashboard shows charts + images
 [x] Phase 5: sdk/mltracker.py SDK                   → end-to-end script → dashboard shows data
 [x] Deployment: EC2 setup scripts (bootstrap, certbot, update) — verified working on AL2023
+[x] Local dev: local_test.sh — Python 3.8 + SQLite 3.31 compatible; first user auto-admin
 ```
 
 **Deployment verification:**

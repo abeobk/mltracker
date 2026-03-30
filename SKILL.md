@@ -230,6 +230,29 @@ navigator.clipboard.writeText(`pip install "${url}"`);
 ### New Flask routes that must be reachable without Nginx config changes go under `/api/v1/`
 The live Nginx config is at `/etc/nginx/sites-available/mltracker` (or `conf.d/`). `update.sh` reloads Nginx but does NOT copy `nginx.conf` from the repo — so adding a new top-level Flask route requires a manual server edit that's easy to forget. Put unauthenticated utility routes (e.g. SDK redirect) under `/api/v1/` which is already proxied on every deployment.
 
+### `pyproject.toml` license must use table form for older setuptools
+`license = "MIT"` (bare string) is PEP 639 syntax and requires setuptools 67+. Older setuptools (bundled with Python 3.8 venv) rejects it. Use:
+```toml
+license = {text = "MIT"}
+```
+
+---
+
+## Python / SQLite compatibility
+
+### Use `from __future__ import annotations` for modern type syntax on Python 3.8
+`dict[str, int]`, `list[str]`, `X | Y` union syntax in annotations fail at runtime on Python 3.8 (requires 3.9+ / 3.10+). Add `from __future__ import annotations` at the top of any file that uses them — defers all annotation evaluation to strings.
+
+### `unixepoch('now')` requires SQLite 3.38+ — use `strftime('%s','now')` instead
+`unixepoch()` was added in SQLite 3.38.0 (2022). Ubuntu 20.04 ships 3.31. `strftime('%s','now')` returns the Unix epoch as a text string on all SQLite versions; the REAL column type coerces it correctly.
+
+---
+
+## Local development
+
+### `local_test.sh` is the entry point for local testing — no Redis or Google OAuth needed
+`bash setup/local_test.sh` creates the venv, installs deps, builds the SDK wheel into `frontend/downloads/`, and starts Flask on `http://localhost:5000` with `REDIS_URL=memory://` and a dummy `SECRET_KEY`. The first email/password user who registers and logs in auto-activates as admin via the existing bootstrap mechanism.
+
 ---
 
 ## Nginx
