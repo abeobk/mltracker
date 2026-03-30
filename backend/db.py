@@ -31,14 +31,14 @@ CREATE TABLE IF NOT EXISTS users (
     api_key          TEXT UNIQUE NOT NULL,
     password_hash    TEXT,
     status           TEXT NOT NULL DEFAULT 'pending_approval',
-    created_at       REAL NOT NULL DEFAULT (unixepoch('now'))
+    created_at       REAL NOT NULL DEFAULT (strftime('%s','now'))
 );
 
 CREATE TABLE IF NOT EXISTS projects (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name       TEXT NOT NULL,
-    created_at REAL NOT NULL DEFAULT (unixepoch('now')),
+    created_at REAL NOT NULL DEFAULT (strftime('%s','now')),
     UNIQUE(user_id, name)
 );
 
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS runs (
     name        TEXT NOT NULL,
     status      TEXT NOT NULL DEFAULT 'running',
     config      TEXT,
-    created_at  REAL NOT NULL DEFAULT (unixepoch('now')),
+    created_at  REAL NOT NULL DEFAULT (strftime('%s','now')),
     finished_at REAL,
     UNIQUE(project_id, name)
 );
@@ -103,7 +103,7 @@ def _fix_google_id_not_null(db):
             api_key          TEXT UNIQUE NOT NULL,
             password_hash    TEXT,
             status           TEXT NOT NULL DEFAULT 'pending_approval',
-            created_at       REAL NOT NULL DEFAULT (unixepoch('now'))
+            created_at       REAL NOT NULL DEFAULT (strftime('%s','now'))
         );
 
         INSERT INTO users_new ({col_list})

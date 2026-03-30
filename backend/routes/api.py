@@ -1,4 +1,5 @@
 """Write endpoints — authenticated via API key (Bearer token)."""
+from __future__ import annotations
 import json
 import os
 from typing import Any
@@ -260,7 +261,7 @@ def finish_run(run_id):
 
     db = get_db()
     db.execute(
-        "UPDATE runs SET status=?, finished_at=unixepoch('now') WHERE id=?",
+        "UPDATE runs SET status=?, finished_at=strftime('%s','now') WHERE id=?",
         (status, run_id),
     )
     db.commit()
