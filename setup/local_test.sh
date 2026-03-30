@@ -42,6 +42,23 @@ info "Installing / syncing Python dependencies..."
 # ── Data directories ──────────────────────────────────────────────────────────
 mkdir -p "$REPO_DIR/data"
 
+# ── Build SDK wheel ───────────────────────────────────────────────────────────
+DOWNLOADS_DIR="$REPO_DIR/frontend/downloads"
+mkdir -p "$DOWNLOADS_DIR"
+info "Building SDK wheel..."
+"$VENV_DIR/bin/pip" install --quiet --upgrade build setuptools wheel
+BUILD_TMP=$(mktemp -d)
+if "$VENV_DIR/bin/python" -m build --wheel --no-isolation --outdir "$BUILD_TMP" "$REPO_DIR/sdk" &>/dev/null; then
+    rm -f "$DOWNLOADS_DIR"/mltracker-*.whl
+    cp "$BUILD_TMP"/mltracker-*.whl "$DOWNLOADS_DIR/"
+    WHL_NAME=$(ls "$DOWNLOADS_DIR"/mltracker-*.whl | xargs basename)
+    ln -sf "$WHL_NAME" "$DOWNLOADS_DIR/mltracker-latest.whl"
+    info "SDK wheel: frontend/downloads/$WHL_NAME"
+else
+    warn "SDK wheel build failed — SDK download button will not work."
+fi
+rm -rf "$BUILD_TMP"
+
 # ── Environment ───────────────────────────────────────────────────────────────
 # SECRET_KEY: required by Flask (raises KeyError at startup if missing)
 export SECRET_KEY="local-dev-secret-NOT-for-production"
